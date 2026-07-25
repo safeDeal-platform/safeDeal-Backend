@@ -6,12 +6,27 @@ spring:
     password: ${DB_PASSWORD}
   jpa:
     hibernate:
-      ddl-auto: create
+      ddl-auto: validate
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQL8Dialect
         show_sql: true
         format_sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+# 프로파일 분리 계획 (미구현, 후속 PR에서 진행):
+# - application-local.yml: 로컬 개발용 오버라이드(ddl-auto=update, 상세 로깅 등)
+# - application-prod.yml: 운영 값 분리(비밀값은 .env/시크릿 매니저로 유지)
+# 현재는 단일 application.yml + .env 변수 주입만으로 운영한다.
 
 logging:
   level:
