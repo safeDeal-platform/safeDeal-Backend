@@ -12,10 +12,14 @@ spring:
         dialect: org.hibernate.dialect.MySQL8Dialect
         show_sql: true
         format_sql: true
+        jdbc:
+          time_zone: UTC
   flyway:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: false
+  jackson:
+    time-zone: UTC
   data:
     redis:
       host: ${REDIS_HOST:localhost}
