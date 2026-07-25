@@ -1,0 +1,13 @@
+# 공통 설정(application.yml)에서 이미 비활성화돼 있지만, 운영에서 절대 켜지지 않도록
+# 한 번 더 명시한다.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# 운영 배포 시 별도로 확정해야 하는 항목 (deferred 이슈로 관리)
+# - Redis: TLS 및 비밀번호 필수화 (spring.data.redis.ssl.enabled, password)
+# - Kafka: SASL_SSL 및 토픽별 최소 권한 ACL
+# - actuator: management 포트 분리 또는 운영자 전용 권한으로 prometheus/info 격리
+#   (지금은 일반 사용자 인증만 통과하면 조회 가능하므로 운영 전 반드시 분리)

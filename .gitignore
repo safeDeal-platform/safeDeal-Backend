@@ -36,4 +36,34 @@ out/
 ### VS Code ###
 .vscode/
 
+### 환경 변수 ###
 .env
+.env.*
+!.env.example
+
+### 로그 ###
+*.log
+logs/
+
+### 인증서 · 개인키 ###
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+*.der
+
+### OS ###
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+### 임시 · 편집기 ###
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
