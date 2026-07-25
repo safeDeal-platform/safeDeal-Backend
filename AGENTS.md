@@ -1,0 +1,14 @@
+# SafeDeal 개발 규칙
+
+## 행동 원칙
+1. 모호하면 가정 말고 질문 — 정책은 노션 '정책' 페이지가 기준
+2. 요청받은 것만 최소로 — 1회용 코드에 추상화 금지
+3. 수술적 변경 — 무관한 코드·남의 도메인 리라이트 금지
+4. 빌드·테스트 통과 + 동작 확인까지가 완료
+
+## 프로젝트 규칙
+- 스키마 진실 = src/main/resources/db/migration. 적용된 V파일 수정 절대 금지, 변경은 새 버전으로
+- 상태 전이 = 조건부 UPDATE(WHERE status=기대값) + 전이표 병행 · enum은 EnumType.STRING
+- 소프트삭제는 명시적 where · 비동기 이벤트는 event_id 멱등 전제
+- 커밋: ✨update 🎉add 🐛bugfix ♻️refactor 🩹fix 🚚move 🔥del 🍻test
+- 기능을 미룰 땐 deferred 이슈(사유·담당·검토일·영향) 필수
