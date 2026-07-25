@@ -18,6 +18,12 @@ public enum CommonErrorCode implements ErrorCode {
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "C005", "인증이 필요합니다."),
     FORBIDDEN(HttpStatus.FORBIDDEN, "C006", "접근 권한이 없습니다."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "C007", "서버 내부 오류가 발생했습니다."),
+    UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "C008", "지원하지 않는 Content-Type입니다."),
+    // CONFLICT(C004)와 상태 코드는 같지만 코드를 분리한다. 낙관적 락 충돌은 잠시 후 같은
+    // 요청을 다시 보내면 성공할 수 있는 일시적 충돌이라, 클라이언트가 재시도 여부를
+    // 판단할 수 있어야 한다.
+    CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "C009", "다른 요청이 먼저 처리되었습니다. 다시 시도해 주세요."),
+    PAYLOAD_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "C010", "업로드 용량 제한을 초과했습니다."),
     ;
 
     private final HttpStatus status;
