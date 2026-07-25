@@ -1,0 +1,23 @@
+spring:
+  jpa:
+    properties:
+      hibernate:
+        show_sql: true
+        format_sql: true
+
+app:
+  security:
+    # 로컬 개발 편의용 스위치. DevAuthenticationFilter가 이 값을 읽어 개발용 인증
+    # 우회를 켠다 — 운영 기본값(application.yml)은 반드시 false.
+    dev-auth-enabled: true
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+
+# API 문서는 공통 설정에서 꺼져 있고(fail-closed) 로컬에서만 켠다.
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
