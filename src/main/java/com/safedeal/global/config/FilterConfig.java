@@ -1,6 +1,7 @@
 package com.safedeal.global.config;
 
 import com.safedeal.global.filter.RequestIdFilter;
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -29,6 +30,11 @@ public class FilterConfig {
         FilterRegistrationBean<RequestIdFilter> registration = new FilterRegistrationBean<>(new RequestIdFilter());
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");
+        // 기본 dispatcher는 REQUEST 하나뿐이라, 컨테이너가 에러 페이지로 재디스패치하는
+        // 경로(BasicErrorController)에서는 이 필터가 아예 실행되지 않아 로그에 requestId가
+        // 빈 채로 남는다. 장애 분석에 정작 필요한 응답이 그 경로라 ERROR도 함께 등록한다.
+        // ASYNC는 같은 이유로 비동기 결과를 응답으로 되돌리는 구간을 살리기 위해 넣는다.
+        registration.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ERROR, DispatcherType.ASYNC);
         return registration;
     }
 }
