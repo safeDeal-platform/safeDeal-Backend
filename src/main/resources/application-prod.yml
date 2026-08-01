@@ -9,5 +9,5 @@ springdoc:
 # 운영 배포 시 별도로 확정해야 하는 항목 (deferred 이슈로 관리)
 # - Redis: TLS 및 비밀번호 필수화 (spring.data.redis.ssl.enabled, password)
 # - Kafka: SASL_SSL 및 토픽별 최소 권한 ACL
-# - actuator: management 포트 분리 또는 운영자 전용 권한으로 prometheus/info 격리
-#   (지금은 일반 사용자 인증만 통과하면 조회 가능하므로 운영 전 반드시 분리)
+# actuator는 공통 설정에서 health만 노출하도록 좁혀 해결했다. 모니터링 도입 시
+# management 포트 분리와 함께 prometheus를 여는 것이 그때의 작업이다.
