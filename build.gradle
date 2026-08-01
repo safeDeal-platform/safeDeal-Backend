@@ -48,7 +48,10 @@ dependencies {
     implementation 'com.github.loki4j:loki-logback-appender:1.5.2'
 
     // 스키마 마이그레이션 (Flyway) - 버전은 Spring Boot BOM이 관리
-    implementation 'org.flywaydb:flyway-core'
+    // Boot 4에서 자동 구성이 모듈로 분리돼, flyway-core만 넣으면 라이브러리는 올라오지만
+    // 스프링이 마이그레이션을 실행해주지 않는다(spring.flyway.* 설정이 조용히 무시됨).
+    // 자동 구성을 가진 쪽은 아래 스타터다 — Kafka도 같은 이유로 스타터를 쓴다.
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
     implementation 'org.flywaydb:flyway-mysql'
 
     // JWT
