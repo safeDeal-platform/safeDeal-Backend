@@ -6,12 +6,21 @@ on:
       - dev
       - main
 
+# 이 워크플로는 빌드만 한다. GITHUB_TOKEN에 그 이상의 권한을 주지 않는다.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # 기본값(true)이면 checkout이 인증 토큰을 실행 환경에 심어두고, 그 뒤에
+          # PR로 들어온 코드인 ./gradlew build가 실행된다(빌드 스크립트도 PR의 코드다).
+          # 커밋·푸시를 하지 않는 워크플로이므로 토큰을 남길 이유가 없다.
+          persist-credentials: false
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
