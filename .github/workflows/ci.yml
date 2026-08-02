@@ -35,9 +35,47 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # 테스트에 Testcontainers(MySQL)가 포함된다 — 러너의 Docker를 그대로 쓴다.
       - name: Build with Gradle
         run: ./gradlew build
+
+      # 이미지 안에서 재빌드하지 않는다. 위에서 테스트를 통과한 바로 그 JAR을 넣어야
+      # "검증한 산출물 = 배포할 산출물"이 성립한다 (Dockerfile 주석 참고).
+      - name: Build container image
+        run: docker build -t safedeal-backend:ci .
+
+      # 이미지가 만들어지는 것과 실제로 뜨는 것은 다르다 — 컨테이너로 기동해서
+      # health가 열릴 때까지 확인해야 배포 가능성이 검증된다.
+      - name: Start local infra
+        run: docker compose up -d --wait mysql redis kafka
+
+      - name: Container smoke test
+        run: |
+          docker run -d --name app --network host \
+            -e SPRING_PROFILES_ACTIVE=local \
+            -e DB_URL='jdbc:mysql://127.0.0.1:3306/safedeal?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC' \
+            -e DB_USERNAME=root \
+            -e DB_PASSWORD=localdev \
+            safedeal-backend:ci
+          for i in $(seq 1 45); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || true)
+            if [ "$code" = "200" ]; then
+              echo "컨테이너 기동 확인 (${i}회 시도)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::컨테이너가 90초 안에 health를 열지 못함"
+          docker logs app
+          exit 1
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f app 2>/dev/null || true
+          docker compose down -v 2>/dev/null || true

@@ -80,3 +80,15 @@ dependencies {
 tasks.named('test') {
     useJUnitPlatform()
 }
+
+// 실행 불가능한 plain jar 생성을 끈다. 켜두면 build/libs에 jar가 두 개 생겨
+// Dockerfile이 어느 것을 집을지 모호해진다.
+tasks.named('jar') {
+    enabled = false
+}
+
+// 산출물 이름을 고정한다. 글롭(*.jar)에 의존하면 이전 빌드의 잔재 jar가 남아 있을 때
+// 엉뚱한 파일이 이미지에 들어간다 — 실제로 리네이밍 전 프로젝트명 jar가 남아 재현됐다.
+tasks.named('bootJar') {
+    archiveFileName = 'application.jar'
+}
