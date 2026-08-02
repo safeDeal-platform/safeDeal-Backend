@@ -13,12 +13,14 @@ import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestValueException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
@@ -73,6 +75,26 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleMissingServletRequestParameterException(
             MissingServletRequestParameterException e) {
         String message = "필수 파라미터 '%s'이(가) 누락되었습니다.".formatted(e.getParameterName());
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
+                .body(ApiResponse.error(CommonErrorCode.INVALID_INPUT, message));
+    }
+
+    // 필수 헤더·쿠키·matrix 변수 누락. MissingServletRequestParameterException도 이 타입의
+    // 하위이지만 위에 더 구체적인 핸들러가 있어 그쪽이 우선 선택된다.
+    //
+    // MissingPathVariableException은 일부러 여기서 다루지 않는다 — 그건 클라이언트 잘못이 아니라
+    // 컨트롤러 매핑과 메서드 시그니처가 어긋난 서버 버그이므로 500으로 드러나야 한다.
+    @ExceptionHandler(MissingRequestValueException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingRequestValueException(MissingRequestValueException e) {
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
+                .body(ApiResponse.error(CommonErrorCode.INVALID_INPUT, "필수 요청 값이 누락되었습니다."));
+    }
+
+    // multipart 요청에서 필수 part 누락
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingServletRequestPartException(
+            MissingServletRequestPartException e) {
+        String message = "필수 파일 '%s'이(가) 누락되었습니다.".formatted(e.getRequestPartName());
         return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
                 .body(ApiResponse.error(CommonErrorCode.INVALID_INPUT, message));
     }
