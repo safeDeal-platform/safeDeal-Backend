@@ -16,6 +16,8 @@
   유저·상품·채팅·신고·검증 V1xx / 인증·결제·신뢰도 V2xx / 알림·거래·가격추세 V3xx
 - 상태 전이 = 조건부 UPDATE(WHERE status=기대값) + 전이표 병행 · enum은 EnumType.STRING
 - 소프트삭제는 명시적 where · 비동기 이벤트는 event_id 멱등 전제
+- 현재 사용자는 컨트롤러에서 @AuthenticationPrincipal AuthenticatedUser 로만 꺼낸다 (global/security/AuthenticatedUser 주석 참고). SecurityContext에서 직접 캐스팅 금지
+- 에러 코드: 한 번 공개한 코드는 변경·재사용 금지, 전역 유일. 도메인별 접두어 배분은 도메인 착수 시 팀 합의로 정한다(단일 문자 접두어 금지 — A·P가 이미 충돌)
 - 커밋: 이모지 없이 접두어만 (fix:/add:/refactor: 등)
 - PR: 제목은 [태그] 형식, 본문은 ## 💡 개요 / ## 🛠️ 작업 내용 구조
 - 기능을 미룰 땐 deferred 이슈(사유·담당·검토일·영향) 필수
