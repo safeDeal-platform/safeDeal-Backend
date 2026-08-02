@@ -67,8 +67,14 @@ dependencies {
 
     // 테스트
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testImplementation 'org.testcontainers:junit-jupiter'
-    testImplementation 'org.testcontainers:mysql'
+    // Boot 4는 MockMvc 테스트 자동구성도 모듈로 분리됐다(Kafka·Flyway와 같은 패턴).
+    // @AutoConfigureMockMvc가 여기(spring-boot-webmvc-test) 소속이다.
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    // Testcontainers 2.x(Boot 4 BOM 관리)는 아티팩트명이 testcontainers- 접두어로 바뀌었다.
+    // 구 이름(junit-jupiter, mysql)은 해석 자체가 안 된다 — 테스트가 0개일 때는 테스트
+    // 클래스패스를 아무도 안 만들어서 이 오류가 숨어 있었다.
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-mysql'
 }
 
 tasks.named('test') {
