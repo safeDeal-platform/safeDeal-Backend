@@ -90,7 +90,10 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
     allowed-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
-    allowed-headers: Authorization,Content-Type,X-Request-Id
+    # X-Dev-*는 local 전용 개발 인증 필터가 읽는 헤더다. 여기 없으면 브라우저 preflight에서
+    # 막혀 로컬 프런트엔드가 개발 인증을 아예 쓸 수 없다. 운영에서는 필터 자체가 비활성이라
+    # 헤더를 허용해도 인증에 쓰이지 않는다.
+    allowed-headers: Authorization,Content-Type,X-Request-Id,X-Dev-User-Id,X-Dev-Role
     exposed-headers: X-Request-Id
     allow-credentials: ${CORS_ALLOW_CREDENTIALS:false}
     max-age: 3600
