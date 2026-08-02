@@ -122,7 +122,11 @@ public class GlobalExceptionHandler {
     // 로그에만 남긴다.
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolationException(DataIntegrityViolationException e) {
-        log.warn("데이터 제약 조건 위반", e);
+        // 예외 객체를 그대로 넘기면 "Duplicate entry 'user@example.com' for key 'users.email'" 처럼
+        // 사용자가 입력한 값이 메시지에 담겨 로그로 나간다. 로그는 Loki로 외부 전송되므로
+        // 개인정보가 그대로 적재된다. 어떤 제약이 깨졌는지는 예외 타입과 스택으로 충분히 좁혀지고,
+        // 실제 값이 필요하면 DB 쪽에서 확인한다.
+        log.warn("데이터 제약 조건 위반 - type={}", e.getClass().getName());
         return ResponseEntity.status(CommonErrorCode.CONFLICT.getStatus())
                 .body(ApiResponse.error(CommonErrorCode.CONFLICT, CommonErrorCode.CONFLICT.getMessage()));
     }
