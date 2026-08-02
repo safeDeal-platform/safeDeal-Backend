@@ -44,6 +44,18 @@ public class DevAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
+        // principal 계약(AuthenticatedUser)은 userId를 Long으로 요구한다. 숫자가 아닌 값은
+        // 인증하지 않고 통과시킨다 — 잘못된 헤더로 절반만 인증된 상태를 만드는 것보다
+        // 401로 명확히 드러나는 편이 낫다.
+        long parsedUserId;
+        try {
+            parsedUserId = Long.parseLong(userId.trim());
+        } catch (NumberFormatException e) {
+            log.warn("개발용 인증 헤더의 사용자 ID가 숫자가 아니라 무시함 (local 전용)");
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         // 요청 헤더 값을 그대로 권한으로 만들면 ADMIN 등 임의 권한을 스스로 부여할 수 있다.
         // 허용 목록에 없는 값은 조용히 무시하고 기본 권한만 준다.
         // Set.of(...)는 불변 집합이라 contains(null)에서 NPE가 나므로 null을 먼저 거른다.
@@ -52,8 +64,11 @@ public class DevAuthenticationFilter extends OncePerRequestFilter {
                 ? requestedRole
                 : DEFAULT_ROLE;
 
+        // principal은 반드시 AuthenticatedUser로 넣는다 — 컨트롤러가
+        // @AuthenticationPrincipal AuthenticatedUser 로 꺼내는 계약(해당 클래스 주석 참고).
         Authentication authentication = new UsernamePasswordAuthenticationToken(
-                userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+                new AuthenticatedUser(parsedUserId, role), null,
+                List.of(new SimpleGrantedAuthority("ROLE_" + role)));
         SecurityContextHolder.getContext().setAuthentication(authentication);
         // 클라이언트가 보낸 식별자를 그대로 로그에 남기면 개인정보성 값이 로그 수집기까지
         // 흘러가고 임의 문자열로 로그를 오염시킬 수 있다. 발생 사실만 기록한다.
