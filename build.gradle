@@ -4,9 +4,9 @@ plugins {
     id 'io.spring.dependency-management' version '1.1.7'
 }
 
-group = 'jpa.basic'
+group = 'com.safedeal'
 version = '0.0.1-SNAPSHOT'
-description = 'AI-Monitoring'
+description = 'SafeDeal Backend'
 
 java {
     toolchain {
@@ -18,21 +18,26 @@ repositories {
     mavenCentral()
 }
 
+// Spring Boot 4.0.6(Spring Framework 7 / Hibernate 7) 호환 QueryDSL 좌표.
+// 구 com.querydsl 5.x(jakarta classifier)는 Hibernate 7과 호환되지 않아
+// OpenFeign 포크(io.github.openfeign.querydsl) 7.0(JPA 3.2 + Hibernate 7 기준)을 사용한다.
+ext {
+    queryDslVersion = '7.0'
+}
+
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-kafka'
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-websocket'
-    testImplementation 'org.springframework.kafka:spring-kafka-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-kafka-test'
     testImplementation 'org.springframework.security:spring-security-test'
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
-    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     runtimeOnly 'com.mysql:mysql-connector-j'
     testCompileOnly 'org.projectlombok:lombok'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
@@ -42,10 +47,48 @@ dependencies {
     implementation 'io.micrometer:micrometer-registry-prometheus'
     implementation 'com.github.loki4j:loki-logback-appender:1.5.2'
 
+    // 스키마 마이그레이션 (Flyway) - 버전은 Spring Boot BOM이 관리
+    // Boot 4에서 자동 구성이 모듈로 분리돼, flyway-core만 넣으면 라이브러리는 올라오지만
+    // 스프링이 마이그레이션을 실행해주지 않는다(spring.flyway.* 설정이 조용히 무시됨).
+    // 자동 구성을 가진 쪽은 아래 스타터다 — Kafka도 같은 이유로 스타터를 쓴다.
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    implementation 'org.flywaydb:flyway-mysql'
 
+    // JWT
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.6'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.6'
 
+    // QueryDSL (OpenFeign 포크, Hibernate 7 / Jakarta 호환)
+    implementation "io.github.openfeign.querydsl:querydsl-jpa:${queryDslVersion}"
+    annotationProcessor "io.github.openfeign.querydsl:querydsl-apt:${queryDslVersion}:jpa"
+    annotationProcessor 'jakarta.annotation:jakarta.annotation-api'
+    annotationProcessor 'jakarta.persistence:jakarta.persistence-api'
+
+    // 테스트
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    // Boot 4는 MockMvc 테스트 자동구성도 모듈로 분리됐다(Kafka·Flyway와 같은 패턴).
+    // @AutoConfigureMockMvc가 여기(spring-boot-webmvc-test) 소속이다.
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    // Testcontainers 2.x(Boot 4 BOM 관리)는 아티팩트명이 testcontainers- 접두어로 바뀌었다.
+    // 구 이름(junit-jupiter, mysql)은 해석 자체가 안 된다 — 테스트가 0개일 때는 테스트
+    // 클래스패스를 아무도 안 만들어서 이 오류가 숨어 있었다.
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-mysql'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+// 실행 불가능한 plain jar 생성을 끈다. 켜두면 build/libs에 jar가 두 개 생겨
+// Dockerfile이 어느 것을 집을지 모호해진다.
+tasks.named('jar') {
+    enabled = false
+}
+
+// 산출물 이름을 고정한다. 글롭(*.jar)에 의존하면 이전 빌드의 잔재 jar가 남아 있을 때
+// 엉뚱한 파일이 이미지에 들어간다 — 실제로 리네이밍 전 프로젝트명 jar가 남아 재현됐다.
+tasks.named('bootJar') {
+    archiveFileName = 'application.jar'
 }

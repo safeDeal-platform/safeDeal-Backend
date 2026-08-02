@@ -1,0 +1,31 @@
+# 공통 설정(application.yml)에서 이미 비활성화돼 있지만, 운영에서 절대 켜지지 않도록
+# 한 번 더 명시한다.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# 공통 설정의 localhost 기본값을 지운다.
+# 기본값이 살아 있으면 배포에서 환경변수를 하나 빠뜨려도 기동이 성공한 뒤 자기 컨테이너의
+# localhost에 붙으려다 실패한다 — 원인이 배포 설정인데 런타임 장애처럼 보여 추적이 오래 걸린다.
+# 값을 비워 두면 플레이스홀더 해석이 실패해 기동 시점에 바로 드러난다.
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+
+app:
+  cors:
+    # 기본값(http://localhost:3000)이 운영에서 유효하면 서비스는 정상 기동하는데 실제
+    # 프런트엔드의 모든 요청이 CORS로 차단된다. 여기서도 필수값으로 바꾼다.
+    allowed-origins: ${CORS_ALLOWED_ORIGINS}
+
+# 운영 배포 시 별도로 확정해야 하는 항목 (deferred 이슈로 관리)
+# - Redis: TLS 및 비밀번호 필수화 (spring.data.redis.ssl.enabled, password)
+# - Kafka: SASL_SSL 및 토픽별 최소 권한 ACL
+# actuator는 공통 설정에서 health만 노출하도록 좁혀 해결했다. 모니터링 도입 시
+# management 포트 분리와 함께 prometheus를 여는 것이 그때의 작업이다.

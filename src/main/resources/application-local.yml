@@ -1,0 +1,43 @@
+spring:
+  jpa:
+    hibernate:
+      # MVP 동안은 스키마 진실이 엔티티다. 마이그레이션은 첫 배포 전에 V1 한 장으로 작성한다.
+      #
+      # update가 아니라 create-drop인 이유: update는 컬럼 추가만 하고 삭제·타입 변경을 하지
+      # 않아 각자 로컬 DB에 지운 컬럼과 옛 타입이 계속 쌓인다. 셋이 같은 스키마를 나눠 쓰는
+      # 동안 이 누적이 "내 로컬에선 되는데"의 원인이 되고, 나중에 V1을 뽑을 때 그 잔재까지
+      # 딸려온다. create-drop은 매번 엔티티 그대로 다시 만들어 로컬이 항상 코드와 일치한다.
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        # show_sql은 로깅 프레임워크를 거치지 않고 콘솔에 직접 찍는다. 아래 org.hibernate.SQL
+        # 로거와 같이 켜면 같은 SQL이 두 번 나와 로그를 읽기 어려워지므로 로거 쪽만 쓴다.
+        format_sql: true
+  # 마이그레이션이 없는 동안에는 꺼둔다. create-drop과 함께 켜두면 Flyway가 만든 이력 테이블과
+  # Hibernate가 만든 스키마가 뒤섞여 나중에 V1을 적용할 때 상태가 애매해진다.
+  # 운영 프로파일은 validate + Flyway 활성 그대로라, V1이 들어오면 아무것도 안 고쳐도 된다.
+  flyway:
+    enabled: false
+
+app:
+  security:
+    # 로컬 개발 편의용 스위치. DevAuthenticationFilter가 이 값을 읽어 개발용 인증
+    # 우회를 켠다 — 운영 기본값(application.yml)은 반드시 false.
+    dev-auth-enabled: true
+  kafka:
+    consumer-group:
+      # 공통 설정은 INSTANCE_ID를 필수로 요구한다(누락 시 서버 2대가 같은 group id를 갖게 되어
+      # 채팅 fan-out이 한 대에서만 처리된다). 로컬은 서버가 한 대뿐이라 고정값으로 충분하다.
+      chat-fanout: safedeal-chat-fanout-local
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+    org.hibernate.orm.jdbc.bind: trace
+
+# API 문서는 공통 설정에서 꺼져 있고(fail-closed) 로컬에서만 켠다.
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true

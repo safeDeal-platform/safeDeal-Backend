@@ -1,0 +1,4 @@
+# Dockerfile은 build/libs의 JAR 하나만 쓴다. 나머지를 전부 제외하는 허용 목록 방식이라
+# .env 같은 비밀 파일이 실수로 빌드 컨텍스트에 딸려 들어갈 여지 자체가 없다.
+*
+!build/libs/*.jar

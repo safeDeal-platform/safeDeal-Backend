@@ -1,4 +1,4 @@
-package jpa.basic.safedeal;
+package com.safedeal;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
