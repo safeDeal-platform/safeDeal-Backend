@@ -1,3 +1,8 @@
+# .env를 properties 소스로 읽으면 환경변수의 SERVER_PORT -> server.port 자동 변환 규칙이
+# 적용되지 않는다. 명시적으로 매핑해줘야 .env의 값이 실제로 반영된다.
+server:
+  port: ${SERVER_PORT:8080}
+
 spring:
   # .env는 Docker Compose 규약이라 Spring Boot가 자동으로 읽지 않는다. 이 선언이 없으면
   # .env를 받아 루트에 두고 IDE·gradlew로 실행해도 ${DB_URL}을 못 찾아 기동에 실패한다.
