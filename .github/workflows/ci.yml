@@ -5,6 +5,12 @@ on:
     branches:
       - dev
       - main
+  # 머지된 결과도 검증한다. pull_request만 있으면 각 PR은 통과했는데 둘을 합친 dev는
+  # 아무도 빌드해보지 않은 상태가 된다.
+  push:
+    branches:
+      - dev
+      - main
 
 # 이 워크플로는 빌드만 한다. GITHUB_TOKEN에 그 이상의 권한을 주지 않는다.
 permissions:
@@ -15,7 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        # 태그는 다시 가리킬 수 있어 공급망 관점에서 신뢰 근거가 되지 못한다. v4 시점의
+        # 커밋 SHA로 고정한다(버전 자체는 그대로).
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # 기본값(true)이면 checkout이 인증 토큰을 실행 환경에 심어두고, 그 뒤에
           # PR로 들어온 코드인 ./gradlew build가 실행된다(빌드 스크립트도 PR의 코드다).
@@ -23,7 +31,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@d7793b545071e98d581d3bf084a51c3213318a07 # v4
         with:
           distribution: temurin
           java-version: '17'
