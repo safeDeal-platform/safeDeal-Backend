@@ -16,6 +16,13 @@ import org.springframework.util.backoff.FixedBackOff;
  * application.yml의 {@code spring.kafka.*} 값을 그대로 쓴다. 이 클래스는 모든 리스너에
  * 공통으로 적용할 에러 처리 정책만 다룬다.
  *
+ * ── 직렬화 계약 ──
+ * 값은 JSON으로 주고받고 자바 클래스명 타입 헤더는 싣지 않는다(application.yml 참고).
+ * 컨슈머는 {@link com.safedeal.global.event.EventEnvelope}로 역직렬화되며, 이때 payload는
+ * 특정 도메인 타입이 아니라 Map 형태로 들어온다. 도메인 담당자는 {@code eventType}과
+ * {@code eventVersion}을 먼저 확인한 뒤 payload를 자기 도메인 타입으로 변환한다 —
+ * 클래스명에 의존하지 않는 것이 이 계약의 핵심이다.
+ *
  * ── consumer group 네이밍 규칙 ──
  * 별도 ConsumerFactory를 만들지 않아도 {@code @KafkaListener(groupId = "...")}로 그룹을
  * 충분히 나눌 수 있다. 아래 두 패턴만 지킨다.

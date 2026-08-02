@@ -47,11 +47,29 @@ spring:
       port: ${REDIS_PORT:6379}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-    consumer:
+    producer:
+      # 직렬화기를 지정하지 않으면 Boot 기본값이 값까지 StringSerializer라, EventEnvelope 같은
+      # 객체를 send()하면 직렬화 단계에서 바로 실패한다.
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
-        # 이벤트 payload 역직렬화 대상 패키지 화이트리스트. "*"(전체 허용)는 역직렬화 가젯 체인
-        # 공격에 노출되므로 절대 쓰지 않는다 — 이벤트 봉투 관련 패키지만 명시적으로 허용한다.
-        spring.json.trusted.packages: com.safedeal.**.event
+        # 자바 클래스명을 타입 헤더(__TypeId__)로 실어 보내지 않는다. 계약의 기준은 클래스가
+        # 아니라 eventType + eventVersion이며(EventEnvelope 참고), 클래스명을 계약처럼 쓰면
+        # 프로듀서와 컨슈머가 다른 배포 버전일 때 리팩터링 한 번에 소비가 깨진다.
+        spring.json.add.type.headers: false
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # 역직렬화 실패를 예외로 던지면 컨테이너가 같은 메시지를 무한 재시도한다(poison pill).
+      # ErrorHandlingDeserializer로 감싸면 실패가 공통 에러 핸들러를 거쳐 DLT로 넘어간다.
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        # 프로듀서가 타입 헤더를 안 보내므로 컨슈머도 헤더를 보지 않고 아래 기본 타입으로 읽는다.
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.safedeal.global.event.EventEnvelope
+        # 역직렬화 대상 패키지 화이트리스트. "*"(전체 허용)는 역직렬화 가젯 체인 공격에
+        # 노출되므로 절대 쓰지 않는다 — 이벤트 봉투 관련 패키지만 명시적으로 허용한다.
+        spring.json.trusted.packages: com.safedeal.global.event,com.safedeal.**.event
 
 # 프로파일 분리:
 # - application-local.yml: 로컬 개발 전용 오버라이드(SQL 로깅 등 운영에 노출하면 안 되는 값,
