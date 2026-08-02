@@ -108,7 +108,11 @@ app:
       #   @KafkaListener(groupId = "safedeal-order-v1")
       # 채팅 WebSocket fan-out 컨슈머(모든 서버가 수신)는 서버별로 달라야 하므로 아래 값을 참조한다.
       #   @KafkaListener(groupId = "${app.kafka.consumer-group.chat-fanout}")
-      chat-fanout: safedeal-chat-fanout-${INSTANCE_ID:local}
+      # 기본값을 두지 않는다. 기본값이 있으면 배포에서 INSTANCE_ID를 빠뜨렸을 때 서버 2대가
+      # 같은 group id를 갖게 되어 한 대만 메시지를 받고, 다른 서버에 붙은 사용자는 채팅을
+      # 영영 못 받는다. 조용히 깨지는 대신 기동 시점에 드러나게 한다(local 기본값은
+      # application-local.yml에 있다).
+      chat-fanout: safedeal-chat-fanout-${INSTANCE_ID}
 
 logging:
   level:
