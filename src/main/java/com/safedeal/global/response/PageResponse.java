@@ -15,6 +15,10 @@ import java.util.List;
  * 최대치를 넘는 size 요청은 조용히 clamp하지 말고 400(잘못된 요청)으로 거부한다 —
  * 클라이언트가 자신이 실제로 얼마를 요청했는지 알 수 있어야 페이지네이션 로직을 신뢰할 수 있다.
  * (실제 검증은 컨트롤러/도메인 담당자가 이 상수를 참조해 구현한다.)
+ *
+ * 안전망으로 application.yml에 {@code spring.data.web.pageable.max-page-size=100}을 걸어뒀다.
+ * 검증을 빠뜨려도 Spring 기본 상한 2000이 아니라 100으로 깎이지만, 이건 조용히 깎는 동작이라
+ * 위 400 정책을 대신하지는 못한다.
  */
 public record PageResponse<T>(
         List<T> items,

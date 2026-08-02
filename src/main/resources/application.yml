@@ -34,6 +34,14 @@ spring:
   jackson:
     time-zone: UTC
   data:
+    web:
+      pageable:
+        # 안전망. Spring 기본 상한이 2000이라, 도메인에서 size 검증을 빠뜨리면 한 번에 2000건을
+        # 조회하는 요청이 그대로 통과한다. 여기서 100으로 낮춰 최악의 경우를 막는다.
+        # 다만 이 설정은 초과값을 400으로 거절하지 않고 조용히 100으로 깎으므로,
+        # PageResponse.MAX_SIZE를 참조한 명시적 400 검증은 여전히 도메인 담당자 몫이다.
+        max-page-size: 100
+        default-page-size: 20
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
