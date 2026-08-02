@@ -1,0 +1,70 @@
+# 로컬 개발용 인프라 (MySQL · Redis · Kafka).
+#
+# 애플리케이션 컨테이너는 일부러 넣지 않았다 — 로컬에서 앱은 IDE/gradlew로 띄우는 게
+# 디버깅·재시작이 빠르고, 이 파일의 역할은 "셋이 같은 버전·같은 설정의 인프라를 쓰게
+# 하는 것"까지다. 버전을 태그로 고정한 이유: latest를 쓰면 팀원마다 다른 버전이 내려와
+# 환경 차이가 업무 버그처럼 보이기 시작한다.
+#
+# 사용:  docker compose up -d        (헬스체크까지 기다리려면 --wait)
+# 정리:  docker compose down        (데이터 완전 삭제는 down -v)
+#
+# 비밀번호가 평문인 이유: 로컬 전용 값이라 숨길 대상이 아니다. .env.example의
+# DB_PASSWORD와 맞춰져 있어 cp .env.example .env 후 값 수정 없이 바로 붙는다.
+name: safedeal-local
+
+services:
+  mysql:
+    image: mysql:8.0.36
+    environment:
+      MYSQL_ROOT_PASSWORD: localdev
+      MYSQL_DATABASE: safedeal
+    # 운영 정책(utf8mb4_0900_ai_ci · UTC 저장)과 동일한 서버 설정. 로컬만 다르면
+    # collation·시간대 관련 버그가 로컬과 운영에서 다르게 재현된다.
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --default-time-zone=+00:00
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-plocaldev"]
+      interval: 3s
+      timeout: 5s
+      retries: 40
+
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  # 단일 노드 KRaft. CLUSTER_ID는 로컬 전용 고정값 — 바꾸면 기존 로그 디렉토리와
+  # 충돌하므로 그대로 둘 것.
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    environment:
+      CLUSTER_ID: MkU3OEVFNTcwNTFENDVmYg
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      # 호스트(IDE에서 띄운 앱)는 localhost:9092로 붙는다 — application.yml 기본값과 일치.
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:29092 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
