@@ -59,7 +59,6 @@ class PriceStatisticsRepositoryTest {
     private PriceStatistics stat(StatPeriod period, LocalDate start, LocalDate end, Instant calculatedAt) {
         return PriceStatistics.builder()
                 .category(CATEGORY)
-                .categorySnapshot(CATEGORY)
                 .periodType(period)
                 .periodStart(start)
                 .periodEnd(end)

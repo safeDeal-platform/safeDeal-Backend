@@ -34,11 +34,19 @@ import java.time.LocalDate;
  * <p><b>스키마 메모(categorySnapshot):</b> 노션 정책(상품·유저 → 카테고리·지역, 확정
  * 2026-08-02) — "부모를 바꾸면 과거 통계 해석이 소급 변경되므로 price_statistics는 집계
  * 시점 분류를 보존한다." {@code category}(leaf code)는 categories 마스터 테이블의 최신
- * 상태를 참조하는 값이라 나중에 parent가 바뀌면 과거 집계 행의 의미까지 바뀐다 —
- * {@code categorySnapshot}은 집계 당시의 분류를 그대로 얼려 둔다.
- * categories 마스터 테이블이 아직 코드에 없어(중현/상품 도메인 소유, 이 PR 범위 밖) 정확한
- * 스냅샷 형식(대분류&gt;중분류 경로 vs parent code+leaf code)은 미확정이다 — 지금은 집계
- * 시점의 leaf category code를 그대로 담는다. categories 도입 시 형식을 재확정한다.
+ * 상태를 참조하는 값이라 나중에 parent가 바뀌면 과거 집계 행의 의미까지 바뀐다.
+ *
+ * <p>{@code categorySnapshot}이 지금 항상 {@code null}인 이유(중요 — category 값을
+ * 복사해 채우지 말 것): categories 마스터 테이블이 아직 코드에 없어(중현/상품 도메인 소유,
+ * 이 PR 범위 밖) 부모 계층 데이터 자체가 존재하지 않는다. {@code category}와 같은 leaf
+ * code를 스냅샷에 복사해도, 나중에 그 code로 categories를 다시 조회하면 결국 현재(바뀐)
+ * parent를 가리키게 되어 정책이 막으려던 소급 변경이 그대로 재현된다 — 즉 아무 보호 효과가
+ * 없는 가짜 값이다. 그래서 지금은 채우지 않고 null로 둔다: null 자체가 "categories 도입
+ * 이전에 집계된 행이라 부모 스냅샷이 없다"는 유효한 의미를 갖는다. categories 마스터
+ * 테이블 도입 후 집계 배치(#10)가 실제 부모 경로를 채우기 시작하면 그때부터 non-null이
+ * 된다 — 형식(대분류&gt;중분류 경로 vs parent code+leaf code)과 길이는 그 시점에 함께
+ * 확정한다({@code length=100}은 경로 형식을 미리 배제하지 않기 위한 넉넉한 상한일 뿐
+ * 확정값 아님). deferred 이슈 #13 참고.
  */
 @Entity
 @Getter
@@ -62,8 +70,11 @@ public class PriceStatistics {
     @Column(nullable = false, length = 30)
     private String category;
 
-    /** 집계 시점의 카테고리 분류 스냅샷(정책: 부모 변경으로 과거 통계가 소급 변경되지 않도록). */
-    @Column(name = "category_snapshot", nullable = false, length = 30)
+    /**
+     * 집계 시점의 카테고리 분류 스냅샷(정책: 부모 변경으로 과거 통계가 소급 변경되지 않도록).
+     * categories 마스터 테이블 도입 전까지는 항상 null — 클래스 주석 참고.
+     */
+    @Column(name = "category_snapshot", length = 100)
     private String categorySnapshot;
 
     @Enumerated(EnumType.STRING)
