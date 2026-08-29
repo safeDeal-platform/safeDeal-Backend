@@ -40,6 +40,7 @@ class PriceStatisticsQueryServiceTest {
     private static PriceStatistics stat(int sampleCount) {
         return PriceStatistics.builder()
                 .category(CATEGORY)
+                .categorySnapshot(CATEGORY)
                 .periodType(StatPeriod.D7)
                 .periodStart(LocalDate.of(2026, 8, 9))
                 .periodEnd(LocalDate.of(2026, 8, 16))
