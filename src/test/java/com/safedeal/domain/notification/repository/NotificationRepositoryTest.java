@@ -18,6 +18,7 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -82,13 +83,13 @@ class NotificationRepositoryTest {
     }
 
     @Test
-    @DisplayName("sinceId 초과분만 조회한다 (증분 폴링)")
+    @DisplayName("sinceId 초과분만, id 오름차순(오래된 것부터)으로 조회한다 (증분 폴링)")
     void findsOnlyAfterSinceId() {
         Notification first = notificationRepository.save(inApp());
         Notification second = notificationRepository.save(inApp());
 
         List<Notification> result = notificationRepository
-                .findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdDesc(
+                .findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdAsc(
                         USER, NotificationChannel.IN_APP, first.getId());
 
         assertThat(result).extracting(Notification::getId).containsExactly(second.getId());
@@ -105,5 +106,26 @@ class NotificationRepositoryTest {
                 notificationRepository.findTop10ByUserIdAndChannelOrderByIdDesc(USER, NotificationChannel.IN_APP);
 
         assertThat(result).hasSize(10);
+    }
+
+    @Test
+    @DisplayName("증분분이 10개를 넘으면 최신이 아니라 가장 오래된 미수신 10개부터 반환한다 (gap 방지)")
+    void findsOldestUnseenFirst_whenBacklogExceedsTen() {
+        List<Notification> saved = new ArrayList<>();
+        for (int i = 0; i < 25; i++) {
+            saved.add(notificationRepository.save(inApp()));
+        }
+        Long sinceId = saved.get(9).getId(); // 처음 10개는 이미 수신했다고 가정
+
+        List<Notification> result = notificationRepository
+                .findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdAsc(
+                        USER, NotificationChannel.IN_APP, sinceId);
+
+        assertThat(result).extracting(Notification::getId)
+                .containsExactly(
+                        saved.get(10).getId(), saved.get(11).getId(), saved.get(12).getId(),
+                        saved.get(13).getId(), saved.get(14).getId(), saved.get(15).getId(),
+                        saved.get(16).getId(), saved.get(17).getId(), saved.get(18).getId(),
+                        saved.get(19).getId());
     }
 }

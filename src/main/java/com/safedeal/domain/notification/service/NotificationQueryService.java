@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -31,11 +33,19 @@ public class NotificationQueryService {
      * @param sinceId 이 id 초과분만 조회(폴링 catch-up). null이면 최신 10개.
      */
     public NotificationListResponse getNotifications(Long userId, Long sinceId) {
-        List<Notification> notifications = (sinceId == null)
-                ? notificationRepository.findTop10ByUserIdAndChannelOrderByIdDesc(
-                        userId, NotificationChannel.IN_APP)
-                : notificationRepository.findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdDesc(
+        if (sinceId == null) {
+            List<Notification> notifications = notificationRepository
+                    .findTop10ByUserIdAndChannelOrderByIdDesc(userId, NotificationChannel.IN_APP);
+            return NotificationListResponse.of(notifications);
+        }
+
+        // catch-up은 오래된 미수신분부터(id ASC) 소진해야 커서가 구멍 없이 전진한다
+        // (리포지토리 참고). 응답 표시 순서는 최신순 계약이므로 여기서 뒤집는다.
+        List<Notification> oldestUnseenFirst = notificationRepository
+                .findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdAsc(
                         userId, NotificationChannel.IN_APP, sinceId);
-        return NotificationListResponse.of(notifications);
+        List<Notification> newestFirst = new ArrayList<>(oldestUnseenFirst);
+        Collections.reverse(newestFirst);
+        return NotificationListResponse.of(newestFirst);
     }
 }

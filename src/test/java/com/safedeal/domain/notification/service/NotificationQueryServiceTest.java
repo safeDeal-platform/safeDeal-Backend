@@ -67,9 +67,9 @@ class NotificationQueryServiceTest {
     }
 
     @Test
-    @DisplayName("sinceId가 있으면 그 id 초과분만 IN_APP 채널로 조회한다")
+    @DisplayName("sinceId가 있으면 그 id 초과분만 IN_APP 채널로, 오래된 것부터 조회한다")
     void getNotifications_withSinceId_returnsIncremental() {
-        when(notificationRepository.findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdDesc(
+        when(notificationRepository.findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdAsc(
                 eq(USER_ID), eq(NotificationChannel.IN_APP), eq(88L)))
                 .thenReturn(List.of(notificationWithId(90)));
 
@@ -77,9 +77,30 @@ class NotificationQueryServiceTest {
 
         assertThat(response.items()).hasSize(1);
         assertThat(response.latestId()).isEqualTo(90);
-        verify(notificationRepository).findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdDesc(
+        verify(notificationRepository).findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdAsc(
                 USER_ID, NotificationChannel.IN_APP, 88L);
         verifyNoMoreInteractions(notificationRepository);
+    }
+
+    @Test
+    @DisplayName("증분분이 10개를 넘어도 응답은 최신순으로 뒤집고, latestId는 이번 배치의 최대값이다 (gap 방지)")
+    void getNotifications_withSinceId_backlogExceedsTen_reversesForDisplay() {
+        // 리포지토리는 오래된 미수신 10개(101~110)를 id ASC로 반환한다.
+        List<Notification> oldestUnseenFirst = List.of(
+                notificationWithId(101), notificationWithId(102), notificationWithId(103),
+                notificationWithId(104), notificationWithId(105), notificationWithId(106),
+                notificationWithId(107), notificationWithId(108), notificationWithId(109),
+                notificationWithId(110));
+        when(notificationRepository.findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdAsc(
+                eq(USER_ID), eq(NotificationChannel.IN_APP), eq(100L)))
+                .thenReturn(oldestUnseenFirst);
+
+        NotificationListResponse response = notificationQueryService.getNotifications(USER_ID, 100L);
+
+        assertThat(response.items()).hasSize(10);
+        assertThat(response.items().get(0).notificationId()).isEqualTo(110);
+        assertThat(response.items().get(9).notificationId()).isEqualTo(101);
+        assertThat(response.latestId()).isEqualTo(110);
     }
 
     @Test

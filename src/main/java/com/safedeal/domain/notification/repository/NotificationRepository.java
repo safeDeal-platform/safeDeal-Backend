@@ -10,8 +10,8 @@ import java.util.List;
  * 알림 조회 리포지토리.
  *
  * 목록/폴링 쿼리는 조건이 고정된 정적 쿼리라 QueryDSL 없이 파생 쿼리로 충분하다
- * (데이터 접근 전략: 동적=QueryDSL, 정적=JPA). id DESC + Top10으로 "표시 최대 10개",
- * id 커서(sinceId) 증분을 함께 만족한다.
+ * (데이터 접근 전략: 동적=QueryDSL, 정적=JPA). 첫 진입은 id DESC + Top10으로 "표시 최대
+ * 10개"를, 증분(catch-up)은 id ASC + Top10으로 sinceId 이후 구간을 순서대로 소진한다.
  */
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
@@ -22,9 +22,13 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     List<Notification> findTop10ByUserIdAndChannelOrderByIdDesc(Long userId, NotificationChannel channel);
 
     /**
-     * sinceId 초과분만 최대 10개 (폴링 catch-up). 클라이언트는 이 결과를 기존 목록과
-     * 알림 id로 중복 제거한다.
+     * sinceId 초과분 중 가장 오래된 것부터 최대 10개 (폴링 catch-up).
+     *
+     * <p>id ASC로 가져와야 한다 — DESC로 최신 10개를 집으면, 밀린 알림이 10개를 넘을 때
+     * 중간 구간이 다음 sinceId(=이번 응답 최대 id)보다 작아 영영 재조회되지 않는다(gap).
+     * 오래된 것부터 순서대로 소진해야 커서가 구멍 없이 전진한다. 표시 순서(최신순)는
+     * 서비스 계층에서 뒤집는다.
      */
-    List<Notification> findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdDesc(
+    List<Notification> findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdAsc(
             Long userId, NotificationChannel channel, Long sinceId);
 }
