@@ -45,11 +45,11 @@ public class PriceStatisticsQueryService {
                 .findFirstByCategoryAndPeriodTypeOrderByCalculatedAtDesc(categoryCode, periodType);
 
         if (latest.isEmpty()) {
-            return PriceStatisticsResponse.insufficient(0);
+            return PriceStatisticsResponse.insufficient(categoryCode, periodCode, 0);
         }
         PriceStatistics stat = latest.get();
         if (stat.getSampleCount() < MIN_RELIABLE_SAMPLE_COUNT) {
-            return PriceStatisticsResponse.insufficient(stat.getSampleCount());
+            return PriceStatisticsResponse.insufficient(categoryCode, periodCode, stat.getSampleCount());
         }
         return PriceStatisticsResponse.of(stat, categoryCode, periodCode);
     }

@@ -15,8 +15,11 @@ import java.time.Instant;
  * {@code @JsonInclude(NON_NULL)}로 두 형태를 한 DTO로 표현한다:
  * <ul>
  *   <li>충분: {@code {categoryCode, period, sampleCount, medianPrice, minPrice, maxPrice, calculatedAt}}</li>
- *   <li>부족: {@code {sampleCount, message}}</li>
+ *   <li>부족: {@code {categoryCode, period, sampleCount, message}}</li>
  * </ul>
+ *
+ * <p>부족 응답도 요청받은 categoryCode/period를 그대로 돌려준다 — 클라이언트가 여러 카테고리를
+ * 병렬 조회할 때 응답을 요청에 매칭하고 캐시 키로 쓸 수 있어야 하기 때문이다.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record PriceStatisticsResponse(
@@ -45,9 +48,9 @@ public record PriceStatisticsResponse(
                 null);
     }
 
-    /** 표본 부족(신규 제품 등) — 가격은 감추고 표본 수와 안내만 준다. */
-    public static PriceStatisticsResponse insufficient(int sampleCount) {
+    /** 표본 부족(신규 제품 등) — 가격은 감추고 요청 컨텍스트(categoryCode/period)와 표본 수, 안내만 준다. */
+    public static PriceStatisticsResponse insufficient(String categoryCode, String periodCode, int sampleCount) {
         return new PriceStatisticsResponse(
-                null, null, sampleCount, null, null, null, null, INSUFFICIENT_MESSAGE);
+                categoryCode, periodCode, sampleCount, null, null, null, null, INSUFFICIENT_MESSAGE);
     }
 }

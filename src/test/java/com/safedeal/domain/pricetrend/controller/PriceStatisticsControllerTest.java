@@ -52,7 +52,7 @@ class PriceStatisticsControllerTest {
     @DisplayName("period를 생략하면 기본값 7d로 서비스를 호출한다")
     void getPriceStatistics_defaultPeriod() throws Exception {
         when(priceStatisticsQueryService.getPriceStatistics(eq("DIGITAL_MOBILE"), eq("7d")))
-                .thenReturn(PriceStatisticsResponse.insufficient(0));
+                .thenReturn(PriceStatisticsResponse.insufficient("DIGITAL_MOBILE", "7d", 0));
 
         mockMvc.perform(get("/api/price-statistics").param("categoryCode", "DIGITAL_MOBILE"))
                 .andExpect(status().isOk());
@@ -61,13 +61,15 @@ class PriceStatisticsControllerTest {
     }
 
     @Test
-    @DisplayName("표본 부족이면 가격 없이 표본 수 + 안내 메시지를 준다")
+    @DisplayName("표본 부족이면 가격 없이 요청 컨텍스트 + 표본 수 + 안내 메시지를 준다")
     void getPriceStatistics_insufficient() throws Exception {
         when(priceStatisticsQueryService.getPriceStatistics("NEW_CATEGORY", "7d"))
-                .thenReturn(PriceStatisticsResponse.insufficient(1));
+                .thenReturn(PriceStatisticsResponse.insufficient("NEW_CATEGORY", "7d", 1));
 
         mockMvc.perform(get("/api/price-statistics").param("categoryCode", "NEW_CATEGORY"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.categoryCode").value("NEW_CATEGORY"))
+                .andExpect(jsonPath("$.data.period").value("7d"))
                 .andExpect(jsonPath("$.data.sampleCount").value(1))
                 .andExpect(jsonPath("$.data.message").value(PriceStatisticsResponse.INSUFFICIENT_MESSAGE))
                 .andExpect(jsonPath("$.data.medianPrice").doesNotExist());

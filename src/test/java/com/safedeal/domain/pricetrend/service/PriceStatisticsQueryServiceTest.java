@@ -71,7 +71,7 @@ class PriceStatisticsQueryServiceTest {
     }
 
     @Test
-    @DisplayName("표본이 신뢰 기준 미만이면 가격을 감추고 표본 수 + 안내만 준다")
+    @DisplayName("표본이 신뢰 기준 미만이면 가격을 감추고 요청 컨텍스트 + 표본 수 + 안내만 준다")
     void insufficientLowSample() {
         when(priceStatisticsRepository.findFirstByCategoryAndPeriodTypeOrderByCalculatedAtDesc(CATEGORY, StatPeriod.D7))
                 .thenReturn(Optional.of(stat(1)));
@@ -81,11 +81,12 @@ class PriceStatisticsQueryServiceTest {
         assertThat(response.sampleCount()).isEqualTo(1);
         assertThat(response.message()).isEqualTo(PriceStatisticsResponse.INSUFFICIENT_MESSAGE);
         assertThat(response.medianPrice()).isNull();
-        assertThat(response.categoryCode()).isNull();
+        assertThat(response.categoryCode()).isEqualTo(CATEGORY);
+        assertThat(response.period()).isEqualTo("7d");
     }
 
     @Test
-    @DisplayName("집계가 아예 없으면 표본 0 + 안내로 응답한다")
+    @DisplayName("집계가 아예 없으면 요청 컨텍스트 + 표본 0 + 안내로 응답한다")
     void insufficientNoRow() {
         when(priceStatisticsRepository.findFirstByCategoryAndPeriodTypeOrderByCalculatedAtDesc(CATEGORY, StatPeriod.D30))
                 .thenReturn(Optional.empty());
@@ -94,6 +95,32 @@ class PriceStatisticsQueryServiceTest {
 
         assertThat(response.sampleCount()).isZero();
         assertThat(response.message()).isEqualTo(PriceStatisticsResponse.INSUFFICIENT_MESSAGE);
+        assertThat(response.categoryCode()).isEqualTo(CATEGORY);
+        assertThat(response.period()).isEqualTo("30d");
+    }
+
+    @Test
+    @DisplayName("표본 수가 신뢰 기준 바로 아래(경계-1)면 부족으로 처리한다")
+    void insufficientAtBoundaryMinusOne() {
+        when(priceStatisticsRepository.findFirstByCategoryAndPeriodTypeOrderByCalculatedAtDesc(CATEGORY, StatPeriod.D7))
+                .thenReturn(Optional.of(stat(PriceStatisticsQueryService.MIN_RELIABLE_SAMPLE_COUNT - 1)));
+
+        PriceStatisticsResponse response = priceStatisticsQueryService.getPriceStatistics(CATEGORY, "7d");
+
+        assertThat(response.message()).isEqualTo(PriceStatisticsResponse.INSUFFICIENT_MESSAGE);
+        assertThat(response.medianPrice()).isNull();
+    }
+
+    @Test
+    @DisplayName("표본 수가 신뢰 기준과 정확히 같으면 충분으로 처리한다")
+    void sufficientAtBoundary() {
+        when(priceStatisticsRepository.findFirstByCategoryAndPeriodTypeOrderByCalculatedAtDesc(CATEGORY, StatPeriod.D7))
+                .thenReturn(Optional.of(stat(PriceStatisticsQueryService.MIN_RELIABLE_SAMPLE_COUNT)));
+
+        PriceStatisticsResponse response = priceStatisticsQueryService.getPriceStatistics(CATEGORY, "7d");
+
+        assertThat(response.message()).isNull();
+        assertThat(response.medianPrice()).isEqualTo(900000);
     }
 
     @Test
