@@ -17,7 +17,9 @@ import java.util.List;
 /**
  * Authorization: Bearer 헤더의 access 토큰을 principal로 바꿔 SecurityContext에 넣는다.
  *
- * 서명·만료 검증은 서버 메모리의 비밀키로 하는 로컬 연산이라 외부 저장소가 필요 없다.
+ * 검증 순서는 (1) 서명 (2) 만료 (3) 블랙리스트다. (1)(2)는 서버 메모리의 비밀키로 하는 로컬
+ * 연산이라 Redis와 무관하게 항상 수행되고, Redis가 필요한 것은 (3)뿐이다 — 그래서 Redis 장애 시
+ * 건너뛰는 것도 (3) 하나뿐이다({@link TokenBlacklist} 주석 참고).
  *
  * 토큰이 없거나 유효하지 않으면 인증하지 않고 그냥 통과시킨다. 여기서 401을 직접 쓰지 않는
  * 이유: 이 필터는 공개 경로(회원가입·로그인·매물 목록)에도 걸리므로, 토큰이 없다는 것만으로
@@ -35,6 +37,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtTokenProvider tokenProvider;
+    private final TokenBlacklist tokenBlacklist;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -42,12 +45,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String header = request.getHeader(HEADER);
         if (header != null && header.startsWith(BEARER_PREFIX)) {
             String token = header.substring(BEARER_PREFIX.length()).trim();
-            tokenProvider.resolveAccess(token).ifPresent(claims -> {
-                var user = new AuthenticatedUser(claims.userId(), claims.role());
-                var authentication = new UsernamePasswordAuthenticationToken(
-                        user, null, List.of(new SimpleGrantedAuthority("ROLE_" + claims.role())));
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-            });
+            tokenProvider.resolveAccess(token)
+                    .filter(claims -> !tokenBlacklist.contains(claims.jti()))
+                    .ifPresent(claims -> {
+                        var user = new AuthenticatedUser(claims.userId(), claims.role());
+                        var authentication = new UsernamePasswordAuthenticationToken(
+                                user, null, List.of(new SimpleGrantedAuthority("ROLE_" + claims.role())));
+                        SecurityContextHolder.getContext().setAuthentication(authentication);
+                    });
         }
         filterChain.doFilter(request, response);
     }

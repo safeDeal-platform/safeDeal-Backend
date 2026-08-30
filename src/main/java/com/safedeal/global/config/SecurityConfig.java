@@ -41,12 +41,14 @@ public class SecurityConfig {
 
     // 인증 없이 여는 경로. 도메인이 늘어나도 여기 한 곳만 보면 전체 화이트리스트를 알 수 있다.
 
-    // 토큰이 아직 없는 상태(가입·로그인)에서 호출되는 인증 API.
-    // 재발급·로그아웃 경로는 해당 커밋에서 함께 추가한다.
+    // 토큰이 아직 없거나(가입·로그인) 이미 만료된 상태에서도 호출돼야 하는 인증 API.
+    // logout이 여기 있는 이유: access가 만료된 뒤에도 로그아웃은 돼야 한다(쿠키 삭제가 목적).
+    // 이메일 인증·비밀번호 찾기 경로는 해당 기능 PR에서 함께 추가한다.
     private static final String[] AUTH_PUBLIC_POST_ENDPOINTS = {
             "/api/v1/auth/signup",
             "/api/v1/auth/login",
             "/api/v1/auth/reissue",
+            "/api/v1/auth/logout",
     };
 
     // 매물 목록 공개 조회. 쓰기 메서드(POST/PATCH/DELETE)는 이 매처에 포함하지 않는다.

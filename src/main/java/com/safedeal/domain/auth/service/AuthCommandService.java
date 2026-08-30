@@ -10,6 +10,8 @@ import com.safedeal.domain.user.repository.UserRepository;
 import com.safedeal.global.exception.BusinessException;
 import com.safedeal.global.security.JwtTokenProvider;
 import com.safedeal.global.security.JwtTokenProvider.IssuedToken;
+import com.safedeal.global.security.TokenBlacklist;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,10 +20,9 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * 인증 명령 — 회원가입(AUTH-1)·로그인(AUTH-2).
- *
- * 재발급·로그아웃은 다음 커밋에서 이 클래스에 추가된다.
+ * 인증 명령 (AUTH-1 회원가입 / AUTH-2 로그인 / AUTH-3 재발급 / AUTH-4 로그아웃).
  */
+@Slf4j
 @Service
 public class AuthCommandService {
 
@@ -29,6 +30,7 @@ public class AuthCommandService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider tokenProvider;
     private final RefreshTokenStore refreshTokenStore;
+    private final TokenBlacklist tokenBlacklist;
     private final LoginAttemptStore loginAttemptStore;
 
     /**
@@ -44,11 +46,13 @@ public class AuthCommandService {
                               PasswordEncoder passwordEncoder,
                               JwtTokenProvider tokenProvider,
                               RefreshTokenStore refreshTokenStore,
+                              TokenBlacklist tokenBlacklist,
                               LoginAttemptStore loginAttemptStore) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenProvider = tokenProvider;
         this.refreshTokenStore = refreshTokenStore;
+        this.tokenBlacklist = tokenBlacklist;
         this.loginAttemptStore = loginAttemptStore;
         this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
@@ -111,6 +115,61 @@ public class AuthCommandService {
         loginAttemptStore.clear(accountKey, clientIp);
         user.markLoggedIn(Instant.now());
         return issueTokens(user);
+    }
+
+    /**
+     * 토큰 재발급 (AUTH-3) — RTR + 화이트리스트 + 재사용 감지.
+     *
+     * 서명이 통과해도 화이트리스트에 없으면 <b>이미 한 번 쓰인 토큰</b>이라는 뜻이다. 정상
+     * 사용자라면 재발급 때 직전 토큰이 폐기되고 새 토큰을 받았을 테니, 옛 토큰이 다시 오는 것은
+     * 탈취본이 돌아다닌다는 신호다. 그래서 그 유저의 모든 기기를 끊는다(정책).
+     */
+    @Transactional
+    public AuthTokens reissue(String refreshToken) {
+        var claims = tokenProvider.resolveRefresh(refreshToken)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
+
+        var entry = refreshTokenStore.find(claims.userId(), claims.jti()).orElse(null);
+        if (entry == null) {
+            log.warn("refresh 재사용 감지 - 해당 유저의 모든 세션을 무효화한다. userId={}", claims.userId());
+            refreshTokenStore.revokeAll(claims.userId());
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
+        }
+
+        Instant now = Instant.now();
+        if (!entry.tokenHash().equals(JwtTokenProvider.hash(refreshToken)) || entry.isExpired(now)) {
+            // 만료는 키 TTL이 아니라 저장된 expiresAt으로 판정한다(RefreshTokenStore 주석 참고).
+            refreshTokenStore.revoke(claims.userId(), claims.jti());
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
+        }
+
+        User user = userRepository.findById(claims.userId())
+                .filter(User::isLoginAllowed)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
+
+        // RTR: 직전 토큰을 먼저 폐기하고 새로 발급한다.
+        refreshTokenStore.revoke(claims.userId(), claims.jti());
+        return issueTokens(user);
+    }
+
+    /**
+     * 로그아웃 (AUTH-4).
+     *
+     * access·refresh 모두 <b>없어도 성공</b>으로 처리한다. access가 만료된 뒤에도 로그아웃은
+     * 돼야 하고, Redis 쓰기가 실패해도 마찬가지다 — 여기서 실패를 돌려주면 보안은 하나도 못
+     * 얻으면서(쓰기가 이미 실패했으므로 무효화는 어차피 안 된다) 사용자만 막고, 쿠키가 남아
+     * 공용 PC에서 다음 사람이 남의 계정에 로그인되는 더 나쁜 결과가 된다. 쿠키 삭제는 컨트롤러가
+     * 응답 헤더로 항상 수행한다.
+     */
+    public void logout(String accessToken, String refreshToken) {
+        if (accessToken != null) {
+            tokenProvider.resolveAccess(accessToken)
+                    .ifPresent(claims -> tokenBlacklist.add(claims.jti(), claims.expiresAt()));
+        }
+        if (refreshToken != null) {
+            tokenProvider.resolveRefresh(refreshToken)
+                    .ifPresent(claims -> refreshTokenStore.revoke(claims.userId(), claims.jti()));
+        }
     }
 
     private AuthTokens issueTokens(User user) {
