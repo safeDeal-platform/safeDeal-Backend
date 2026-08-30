@@ -39,7 +39,10 @@ public class RequiredPropertyGuard {
             "app.cors.allowed-origins",
             // 서버마다 달라야 하는 값. 같은 값이면 서버 2대가 한 consumer group에 묶여
             // 채팅 fan-out이 한 대에서만 처리된다.
-            "app.kafka.consumer-group.chat-fanout"
+            "app.kafka.consumer-group.chat-fanout",
+            // 빠뜨리면 토큰 서명 키가 없어 인증이 통째로 깨진다. 게다가 공용 설정에 기본값을
+            // 두지 않았으므로(의도) 여기서 못 잡으면 첫 로그인 요청에서야 드러난다.
+            "app.jwt.secret"
     );
 
     private final Environment environment;

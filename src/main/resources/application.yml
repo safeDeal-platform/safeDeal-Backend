@@ -97,6 +97,13 @@ app:
     exposed-headers: X-Request-Id
     allow-credentials: ${CORS_ALLOW_CREDENTIALS:false}
     max-age: 3600
+  jwt:
+    # 기본값을 두지 않는다. 기본값이 있으면 배포에서 JWT_SECRET을 빠뜨렸을 때 개발용 키로
+    # 조용히 기동해 누구나 토큰을 위조할 수 있는 상태가 된다(운영은 RequiredPropertyGuard가 재확인).
+    secret: ${JWT_SECRET}
+    # access 30분 · refresh 3일 — 정책 '경화 — JWT'
+    access-ttl: 30m
+    refresh-ttl: 3d
   security:
     dev-auth-enabled: false
   kafka:
