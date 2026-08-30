@@ -1,0 +1,35 @@
+# 팀원별 IDE 설정 차이로 PR diff가 오염되는 것을 막는다.
+# IntelliJ·VSCode·이클립스 모두 별도 플러그인 없이 자동 적용된다 — 저장할 때 이 규칙대로
+# 저장되므로 "실제 수정 5줄인데 포맷 변경 200줄" 같은 diff가 생기지 않는다.
+# 임포트 정렬·와일드카드까지는 여기서 못 잡는다(그건 포매터 영역) — 필요해지면 spotless 검토.
+
+root = true
+
+# 모든 파일 공통: UTF-8 · LF(윈도우 CRLF 섞임 방지) · 파일 끝 개행 · 후행 공백 제거
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.java]
+indent_size = 4
+# 한 줄 길이 제한은 IDE마다 강제 방식이 달라 여기선 안 건다 — 리뷰에서 본다.
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.{gradle,xml,sql,lua}]
+indent_size = 4
+
+[*.{json,properties,sh}]
+indent_size = 2
+
+# 마크다운은 줄 끝 공백 2개가 줄바꿈 문법이라 후행 공백을 지우면 안 된다.
+[*.md]
+trim_trailing_whitespace = false
+
+# 윈도우 배치 스크립트만 예외적으로 CRLF (gradlew.bat)
+[*.bat]
+end_of_line = crlf
