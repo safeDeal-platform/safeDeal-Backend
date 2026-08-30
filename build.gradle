@@ -75,6 +75,8 @@ dependencies {
     // 클래스패스를 아무도 안 만들어서 이 오류가 숨어 있었다.
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
     testImplementation 'org.testcontainers:testcontainers-mysql'
+    // @ServiceConnection(컨테이너 접속정보 자동 주입)이 이 모듈 소속이다.
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 }
 
 tasks.named('test') {
