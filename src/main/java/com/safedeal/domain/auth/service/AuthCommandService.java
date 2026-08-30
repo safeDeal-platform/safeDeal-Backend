@@ -1,0 +1,125 @@
+package com.safedeal.domain.auth.service;
+
+import com.safedeal.domain.auth.dto.LoginRequest;
+import com.safedeal.domain.auth.dto.SignupRequest;
+import com.safedeal.domain.auth.exception.AuthErrorCode;
+import com.safedeal.domain.auth.repository.LoginAttemptStore;
+import com.safedeal.domain.auth.repository.RefreshTokenStore;
+import com.safedeal.domain.user.entity.User;
+import com.safedeal.domain.user.repository.UserRepository;
+import com.safedeal.global.exception.BusinessException;
+import com.safedeal.global.security.JwtTokenProvider;
+import com.safedeal.global.security.JwtTokenProvider.IssuedToken;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.UUID;
+
+/**
+ * 인증 명령 — 회원가입(AUTH-1)·로그인(AUTH-2).
+ *
+ * 재발급·로그아웃은 다음 커밋에서 이 클래스에 추가된다.
+ */
+@Service
+public class AuthCommandService {
+
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtTokenProvider tokenProvider;
+    private final RefreshTokenStore refreshTokenStore;
+    private final LoginAttemptStore loginAttemptStore;
+
+    /**
+     * 존재하지 않는 계정으로 로그인을 시도했을 때 대조할 더미 해시.
+     *
+     * 계정이 없을 때 즉시 실패시키면 BCrypt 비교(수십 ms)를 건너뛰게 되어 응답 시간만으로
+     * "이 이메일은 가입돼 있다/없다"를 구분할 수 있다. 에러 코드를 같게 맞춰도 시간이 새면
+     * 열거 방지가 반쪽이 되므로, 계정이 없어도 같은 비용의 비교를 한 번 수행한다.
+     */
+    private final String dummyPasswordHash;
+
+    public AuthCommandService(UserRepository userRepository,
+                              PasswordEncoder passwordEncoder,
+                              JwtTokenProvider tokenProvider,
+                              RefreshTokenStore refreshTokenStore,
+                              LoginAttemptStore loginAttemptStore) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.tokenProvider = tokenProvider;
+        this.refreshTokenStore = refreshTokenStore;
+        this.loginAttemptStore = loginAttemptStore;
+        this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
+    }
+
+    /**
+     * 회원가입 (AUTH-1). 정책상 <b>가입 즉시 로그인 상태로 진입</b>하므로 토큰까지 발급한다.
+     *
+     * 이메일 중복 검사는 소프트 삭제된 행까지 포함한다 — 정책이 "동일 이메일 재가입 1차 불허"이고
+     * DB의 email UNIQUE도 삭제 행을 점유하므로, 사전 검사 범위가 다르면 검사만 통과하고
+     * INSERT에서 터진다.
+     */
+    @Transactional
+    public AuthTokens signup(SignupRequest request) {
+        if (userRepository.existsByEmail(request.email())) {
+            throw new BusinessException(AuthErrorCode.DUPLICATE_EMAIL);
+        }
+        if (userRepository.existsByNickname(request.nickname())) {
+            throw new BusinessException(AuthErrorCode.DUPLICATE_NICKNAME);
+        }
+
+        User user = userRepository.save(User.createLocal(
+                request.email(), passwordEncoder.encode(request.password()), request.nickname()));
+        user.markLoggedIn(Instant.now());
+
+        // 인증 메일 발송(AUTH-6)은 후속 PR에서 여기에 붙는다. 지금은 email_verified=false로만
+        // 만든다 — 정책상 미인증도 로그인·열람은 가능하고 OAuth 자동연결 대상에서만 빠진다.
+        return issueTokens(user);
+    }
+
+    /**
+     * 로그인 (AUTH-2).
+     *
+     * 순서가 중요하다. 비밀번호 대조를 <b>먼저</b> 하고 계정 상태(제재·탈퇴)는 그다음에 본다 —
+     * 순서를 뒤집으면 비밀번호를 모르는 사람도 "이 계정은 정지됐다"는 사실을 알아낼 수 있다.
+     */
+    @Transactional
+    public AuthTokens login(LoginRequest request, String clientIp) {
+        String accountKey = JwtTokenProvider.hash(request.email());
+        if (loginAttemptStore.isLocked(accountKey, clientIp)) {
+            throw new BusinessException(AuthErrorCode.TOO_MANY_LOGIN_ATTEMPTS);
+        }
+
+        User user = userRepository.findByEmailAndDeletedAtIsNull(request.email()).orElse(null);
+
+        // 계정이 없거나 OAuth 전용이어도 대조를 건너뛰지 않는다. 건너뛰면 BCrypt 비용(수십 ms)이
+        // 빠져 응답 시간만으로 "이 이메일은 가입돼 있다/없다"가 드러난다 — 에러 코드를 같게
+        // 맞춰도 시간이 새면 열거 방지가 반쪽이 된다. 항상 정확히 한 번 비교한다.
+        boolean hasPassword = user != null && user.hasPassword();
+        String hashToCompare = hasPassword ? user.getPasswordHash() : dummyPasswordHash;
+        boolean passwordMatches = passwordEncoder.matches(request.password(), hashToCompare);
+
+        if (!hasPassword || !passwordMatches) {
+            loginAttemptStore.recordFailure(accountKey, clientIp);
+            throw new BusinessException(AuthErrorCode.INVALID_CREDENTIALS);
+        }
+        if (!user.isLoginAllowed()) {
+            throw new BusinessException(AuthErrorCode.ACCOUNT_NOT_ACTIVE);
+        }
+
+        loginAttemptStore.clear(accountKey, clientIp);
+        user.markLoggedIn(Instant.now());
+        return issueTokens(user);
+    }
+
+    private AuthTokens issueTokens(User user) {
+        IssuedToken access = tokenProvider.issueAccess(user.getId(), user.getRole().name());
+        IssuedToken refresh = tokenProvider.issueRefresh(user.getId());
+        // 저장 실패는 그대로 올린다(fail-closed). 화이트리스트에 없는 refresh를 발급하면
+        // 그 사용자는 다음 재발급 때 재사용 공격으로 판정돼 전 기기 로그아웃당한다.
+        refreshTokenStore.save(user.getId(), refresh.jti(),
+                JwtTokenProvider.hash(refresh.value()), refresh.expiresAt());
+        return new AuthTokens(access, refresh);
+    }
+}

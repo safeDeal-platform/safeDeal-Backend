@@ -1,0 +1,36 @@
+package com.safedeal.domain.auth.exception;
+
+import com.safedeal.global.exception.ErrorCode;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+
+/**
+ * 인증 도메인 에러 코드.
+ *
+ * 접두어를 요구사항 명세서의 ID(AUTH-1 등)와 맞춰 AUTH로 쓴다. 도메인이 14개라 첫 글자
+ * 한 자로는 겹친다 — Auth-Admin, Payment-Price, Trust-Transaction, Report-Review,
+ * Common-Chat. 명세서 ID를 그대로 쓰면 문서에서 코드를 역추적하기도 쉽다.
+ *
+ * 한 번 응답에 실려 나간 코드는 변경·재사용이 금지된다(공통 규칙). 뒤에 이어지는 기능은
+ * 번호를 이어서 쓰고 중간 번호를 재사용하지 않는다.
+ */
+@Getter
+@RequiredArgsConstructor
+public enum AuthErrorCode implements ErrorCode {
+
+    DUPLICATE_EMAIL(HttpStatus.CONFLICT, "AUTH001", "이미 사용 중인 이메일입니다."),
+    DUPLICATE_NICKNAME(HttpStatus.CONFLICT, "AUTH002", "이미 사용 중인 닉네임입니다."),
+    // 이메일이 없는 경우와 비밀번호가 틀린 경우를 구분하지 않는다 - 구분하면 응답만 보고
+    // "이 이메일은 가입돼 있다"를 확인할 수 있어 계정 열거 통로가 된다.
+    INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "AUTH003", "이메일 또는 비밀번호가 올바르지 않습니다."),
+    ACCOUNT_NOT_ACTIVE(HttpStatus.FORBIDDEN, "AUTH005", "이용이 제한된 계정입니다."),
+    // 잠금 사유를 그대로 알려주면 공격자가 임계값을 역산할 수 있어 메시지는 뭉뚱그린다.
+    TOO_MANY_LOGIN_ATTEMPTS(HttpStatus.TOO_MANY_REQUESTS, "AUTH006",
+            "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요."),
+    ;
+
+    private final HttpStatus status;
+    private final String code;
+    private final String message;
+}
