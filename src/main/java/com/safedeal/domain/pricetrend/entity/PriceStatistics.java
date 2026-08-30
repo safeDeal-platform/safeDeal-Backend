@@ -66,7 +66,7 @@ public class PriceStatistics {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    /** 중분류 code (예: DIGITAL_MOBILE). categories 마스터 테이블의 최신 상태를 가리킨다. */
+    /** 중분류 code (예: DIGITAL_PHONE). categories 마스터 테이블의 최신 상태를 가리킨다. */
     @Column(nullable = false, length = 30)
     private String category;
 
