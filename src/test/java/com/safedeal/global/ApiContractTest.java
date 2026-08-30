@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.emptyString;
@@ -61,11 +62,19 @@ class ApiContractTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("매물 목록은 화이트리스트 — 인증 없이 보안을 통과한다(컨트롤러가 없어 404)")
+    @DisplayName("매물 목록은 화이트리스트 — 인증 없이 조회된다")
     void listings_isWhitelisted() throws Exception {
-        mockMvc.perform(get("/api/v1/listings"))
-                .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error.code").value("C002"));
+        mockMvc.perform(get("/api/listings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+    }
+
+    @Test
+    @DisplayName("매물 등록은 화이트리스트가 아니다 — 인증 없이 401")
+    void listingCreate_requiresAuth() throws Exception {
+        mockMvc.perform(post("/api/listings").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("C005"));
     }
 
     // ── requestId ─────────────────────────────────────────────
