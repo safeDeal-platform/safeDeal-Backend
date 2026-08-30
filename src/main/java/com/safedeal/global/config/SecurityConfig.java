@@ -58,6 +58,12 @@ public class SecurityConfig {
             "/actuator/health",
     };
 
+    // 시세 조회는 비로그인 허용(정책). 하위 경로를 /** 로 열지 않는다 —
+    // 집계 트리거(/api/admin/price-statistics/**)는 ADMIN 전용이라 anyRequest().authenticated()에 남긴다.
+    private static final String[] PRICE_STATISTICS_PUBLIC_GET_ENDPOINTS = {
+            "/api/price-statistics",
+    };
+
     // springdoc(swagger-ui)는 local 프로파일에서만 화이트리스트에 추가한다(아래 참고).
     // 운영에서는 springdoc 자동설정 자체를 yml에서 끄는 방식으로 막을 예정이라 여기서는
     // 프로파일 조건부 permitAll만 담당한다.
@@ -88,6 +94,7 @@ public class SecurityConfig {
                     auth.requestMatchers(HttpMethod.POST, AUTH_PUBLIC_POST_ENDPOINTS).permitAll();
                     auth.requestMatchers(HttpMethod.GET, LISTINGS_PUBLIC_GET_ENDPOINTS).permitAll();
                     auth.requestMatchers(HttpMethod.GET, ACTUATOR_PUBLIC_GET_ENDPOINTS).permitAll();
+                    auth.requestMatchers(HttpMethod.GET, PRICE_STATISTICS_PUBLIC_GET_ENDPOINTS).permitAll();
 
                     // WebSocket(/ws/**) 화이트리스트는 의도적으로 넣지 않았다. 아직 endpoint도
                     // STOMP CONNECT 인증도 없는 상태에서 경로를 미리 열어두면, 나중에 그 아래
