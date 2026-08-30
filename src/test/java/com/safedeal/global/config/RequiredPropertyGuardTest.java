@@ -25,6 +25,7 @@ class RequiredPropertyGuardTest {
         env.setProperty("spring.kafka.bootstrap-servers", "kafka.internal:9092");
         env.setProperty("app.cors.allowed-origins", "https://safedeal.example.com");
         env.setProperty("app.kafka.consumer-group.chat-fanout", "safedeal-chat-fanout-task1");
+        env.setProperty("app.jwt.secret", "test-secret-key-at-least-32-bytes-long!!");
         return env;
     }
 
