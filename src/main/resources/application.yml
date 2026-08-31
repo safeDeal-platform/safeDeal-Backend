@@ -104,6 +104,15 @@ app:
     # access 30분 · refresh 3일 — 정책 '경화 — JWT'
     access-ttl: 30m
     refresh-ttl: 3d
+  mail:
+    # log | resend. 기본은 콘솔 출력이라 메일 계정 없이도 인증·재설정 흐름을 끝까지 확인할 수 있다.
+    provider: ${MAIL_PROVIDER:log}
+    # Resend는 도메인 인증 전이면 onboarding@resend.dev 외의 발신자를 거부한다.
+    from: ${MAIL_FROM:onboarding@resend.dev}
+    # provider=resend 일 때만 필요하다. 개인 계정 키라 .env에만 두고 커밋하지 않는다.
+    api-key: ${RESEND_API_KEY:}
+    # 메일 본문 링크가 가리킬 프런트엔드 기준 URL.
+    base-url: ${MAIL_BASE_URL:http://localhost:3000}
   security:
     dev-auth-enabled: false
   kafka:
