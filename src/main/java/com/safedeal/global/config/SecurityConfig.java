@@ -51,6 +51,8 @@ public class SecurityConfig {
             "/api/v1/auth/reissue",
             "/api/v1/auth/logout",
             "/api/v1/auth/email/verify",
+            "/api/v1/auth/password/reset-request",
+            "/api/v1/auth/password/reset",
     };
 
     // 매물 목록 공개 조회. 쓰기 메서드(POST/PATCH/DELETE)는 이 매처에 포함하지 않는다.

@@ -2,11 +2,14 @@ package com.safedeal.domain.auth.controller;
 
 import com.safedeal.domain.auth.dto.EmailVerifyRequest;
 import com.safedeal.domain.auth.dto.LoginRequest;
+import com.safedeal.domain.auth.dto.PasswordResetConfirmRequest;
+import com.safedeal.domain.auth.dto.PasswordResetRequest;
 import com.safedeal.domain.auth.dto.SignupRequest;
 import com.safedeal.domain.auth.dto.TokenResponse;
 import com.safedeal.domain.auth.exception.AuthErrorCode;
 import com.safedeal.domain.auth.service.AuthCommandService;
 import com.safedeal.domain.auth.service.EmailVerificationService;
+import com.safedeal.domain.auth.service.PasswordResetService;
 import com.safedeal.domain.auth.service.AuthTokens;
 import com.safedeal.global.exception.BusinessException;
 import com.safedeal.domain.user.entity.User;
@@ -50,6 +53,7 @@ public class AuthController {
 
     private final AuthCommandService authCommandService;
     private final EmailVerificationService emailVerificationService;
+    private final PasswordResetService passwordResetService;
     private final UserRepository userRepository;
 
     /** 회원가입 (AUTH-1). 정책상 가입 즉시 로그인 상태로 진입하므로 토큰까지 함께 준다. */
@@ -126,6 +130,34 @@ public class AuthController {
         User user = userRepository.findById(principal.userId())
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
         emailVerificationService.sendVerificationMail(user);
+        return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    /**
+     * 비밀번호 재설정 링크 요청 (AUTH-7).
+     *
+     * 계정이 없어도, OAuth 전용이어도 <b>똑같은 200</b>을 준다. 응답이 달라지는 순간 이
+     * API는 로그인 없이 쓸 수 있는 가입 여부 조회기가 된다. 소셜 계정이라는 안내는 화면이
+     * 아니라 메일 본문으로 보낸다 - 진짜 주인만 읽을 수 있는 경로다(정책).
+     */
+    @PostMapping("/password/reset-request")
+    public ResponseEntity<ApiResponse<Void>> requestPasswordReset(
+            @Valid @RequestBody PasswordResetRequest request) {
+        passwordResetService.requestReset(request.email());
+        return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    /**
+     * 새 비밀번호 설정 (AUTH-7).
+     *
+     * 성공하면 그 유저의 refresh가 전부 끊긴다. 비밀번호를 바꾸는 상황은 대개 계정을
+     * 빼앗겼을 때인데, 공격자가 다른 기기에 로그인해 있으면 비밀번호만 바꿔봐야
+     * 그 세션이 그대로 살아 있다.
+     */
+    @PostMapping("/password/reset")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(
+            @Valid @RequestBody PasswordResetConfirmRequest request) {
+        passwordResetService.resetPassword(request.token(), request.newPassword());
         return ResponseEntity.ok(ApiResponse.success());
     }
 

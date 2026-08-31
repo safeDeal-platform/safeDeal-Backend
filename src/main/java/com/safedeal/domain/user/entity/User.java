@@ -124,6 +124,16 @@ public class User extends MutableEntity {
         return status == UserStatus.ACTIVE && deletedAt == null;
     }
 
+    /**
+     * 비밀번호 변경·재설정 (AUTH-7).
+     *
+     * 호출하는 쪽이 refresh 전체 무효화를 반드시 함께 처리해야 한다 - 정책상 비밀번호가
+     * 바뀌면 기존 세션이 전부 끊겨야 하는데, 엔티티는 Redis를 모르므로 여기서 할 수 없다.
+     */
+    public void changePassword(String encodedPassword) {
+        this.passwordHash = encodedPassword;
+    }
+
     /** OAuth 전용 계정은 대조할 비밀번호가 없다. */
     public boolean hasPassword() {
         return passwordHash != null;

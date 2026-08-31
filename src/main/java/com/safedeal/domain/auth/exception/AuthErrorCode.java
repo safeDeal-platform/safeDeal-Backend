@@ -36,7 +36,10 @@ public enum AuthErrorCode implements ErrorCode {
     // 새어 토큰 추측에 힌트가 된다.
     INVALID_EMAIL_VERIFICATION_TOKEN(HttpStatus.BAD_REQUEST, "AUTH008",
             "인증 링크가 유효하지 않거나 만료되었습니다."),
-    // AUTH009 이후는 비밀번호 찾기(AUTH-7)에서 이어서 쓴다.
+    // 재설정 토큰도 같은 이유로 만료·사용됨·없음을 구분하지 않는다.
+    INVALID_PASSWORD_RESET_TOKEN(HttpStatus.BAD_REQUEST, "AUTH009",
+            "재설정 링크가 유효하지 않거나 만료되었습니다."),
+    // AUTH010 이후는 OAuth(AUTH-5)에서 이어서 쓴다.
     ;
 
     private final HttpStatus status;
