@@ -1,5 +1,12 @@
 package com.safedeal.domain.auth;
 
+import com.safedeal.domain.auth.entity.EmailVerificationToken;
+import com.safedeal.domain.auth.entity.PasswordResetToken;
+import com.safedeal.domain.auth.repository.EmailVerificationTokenRepository;
+import com.safedeal.domain.auth.repository.PasswordResetTokenRepository;
+import com.safedeal.domain.user.repository.UserRepository;
+import com.safedeal.global.security.JwtTokenProvider;
+import com.safedeal.global.util.SecureToken;
 import com.safedeal.testsupport.RecordingMailSender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,6 +29,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -68,6 +77,15 @@ class AuthAccountRecoveryTest {
 
     @Autowired
     RecordingMailSender mailSender;
+
+    @Autowired
+    UserRepository userRepository;
+
+    @Autowired
+    EmailVerificationTokenRepository emailVerificationTokenRepository;
+
+    @Autowired
+    PasswordResetTokenRepository passwordResetTokenRepository;
 
     private static int sequence = 0;
 
@@ -260,11 +278,61 @@ class AuthAccountRecoveryTest {
         String forUnregistered = resetRequest(unregistered)
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
 
-        // 응답이 다르면 이 API가 로그인 없이 쓸 수 있는 가입 여부 조회기가 된다.
-        assertThat(objectMapper.readTree(forRegistered).path("data"))
-                .isEqualTo(objectMapper.readTree(forUnregistered).path("data"));
+        // 응답이 조금이라도 다르면 이 API가 로그인 없이 쓸 수 있는 가입 여부 조회기가 된다.
+        // 특정 필드가 아니라 본문 전체를 비교한다 - 나중에 누가 data에 상태를 하나 얹는 것까지 잡아야 한다.
+        assertThat(forRegistered).isEqualTo(forUnregistered);
         assertThat(mailSender.sentTo(registered)).hasSize(1);
         assertThat(mailSender.sentTo(unregistered)).isEmpty();
+    }
+
+    // ---------- 만료 ----------
+
+    /**
+     * 만료는 시계를 앞당길 수 없어 이미 지난 expiresAt을 가진 행을 직접 넣어 확인한다.
+     *
+     * TTL 자체(24시간·30분)는 서비스 상수라 여기서 값을 검증하지는 못한다. 다만 만료 판정이
+     * 실제로 걸리는지는 확인해야 한다 — isUsable에서 expiresAt 비교가 빠져도 나머지 테스트는
+     * 전부 통과하기 때문이다.
+     */
+    private String issueExpiredVerificationToken(String email) {
+        Long userId = userRepository.findByEmailAndDeletedAtIsNull(email).orElseThrow().getId();
+        String raw = SecureToken.generate();
+        emailVerificationTokenRepository.save(EmailVerificationToken.issue(
+                userId, JwtTokenProvider.hash(raw), Instant.now().minusSeconds(1)));
+        return raw;
+    }
+
+    private String issueExpiredResetToken(String email) {
+        Long userId = userRepository.findByEmailAndDeletedAtIsNull(email).orElseThrow().getId();
+        String raw = SecureToken.generate();
+        passwordResetTokenRepository.save(PasswordResetToken.issue(
+                userId, JwtTokenProvider.hash(raw), Instant.now().minusSeconds(1)));
+        return raw;
+    }
+
+    @Test
+    @DisplayName("만료된 인증 토큰은 거부된다")
+    void expiredVerificationTokenIsRejected() throws Exception {
+        String email = unique("expired-verify") + "@test.com";
+        signup(email, unique("만료인증"));
+
+        verify(issueExpiredVerificationToken(email))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("AUTH008"));
+    }
+
+    @Test
+    @DisplayName("만료된 재설정 토큰은 거부되고 비밀번호도 그대로다")
+    void expiredResetTokenIsRejected() throws Exception {
+        String email = unique("expired-reset") + "@test.com";
+        signup(email, unique("만료재설정"));
+
+        reset(issueExpiredResetToken(email), "new-password-1234")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("AUTH009"));
+
+        // 400을 주면서 비밀번호는 바꿔버리면 최악이므로 로그인으로 확인한다.
+        login(email, "password123").andExpect(status().isOk());
     }
 
     @Test

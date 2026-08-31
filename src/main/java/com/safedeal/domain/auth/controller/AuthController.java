@@ -12,8 +12,6 @@ import com.safedeal.domain.auth.service.EmailVerificationService;
 import com.safedeal.domain.auth.service.PasswordResetService;
 import com.safedeal.domain.auth.service.AuthTokens;
 import com.safedeal.global.exception.BusinessException;
-import com.safedeal.domain.user.entity.User;
-import com.safedeal.domain.user.repository.UserRepository;
 import com.safedeal.global.security.AuthenticatedUser;
 import com.safedeal.global.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
@@ -54,7 +52,6 @@ public class AuthController {
     private final AuthCommandService authCommandService;
     private final EmailVerificationService emailVerificationService;
     private final PasswordResetService passwordResetService;
-    private final UserRepository userRepository;
 
     /** 회원가입 (AUTH-1). 정책상 가입 즉시 로그인 상태로 진입하므로 토큰까지 함께 준다. */
     @PostMapping("/signup")
@@ -127,9 +124,7 @@ public class AuthController {
     @PostMapping("/email/verification")
     public ResponseEntity<ApiResponse<Void>> resendVerificationMail(
             @AuthenticationPrincipal AuthenticatedUser principal) {
-        User user = userRepository.findById(principal.userId())
-                .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
-        emailVerificationService.sendVerificationMail(user);
+        emailVerificationService.resendTo(principal.userId());
         return ResponseEntity.ok(ApiResponse.success());
     }
 

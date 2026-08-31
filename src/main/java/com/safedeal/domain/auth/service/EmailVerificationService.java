@@ -60,6 +60,21 @@ public class EmailVerificationService {
     }
 
     /**
+    /**
+     * 로그인한 본인에게 인증 메일을 다시 보낸다 (재발송 API).
+     *
+     * 유저 조회를 컨트롤러가 아니라 여기서 하는 이유: 컨트롤러가 리포지토리를 직접 들면
+     * "누구에게 보낼지"를 정하는 규칙이 서비스 밖으로 새어 나간다. 이 API의 핵심 제약이
+     * 바로 그 규칙(본인에게만)이라 서비스 안에 있어야 한다.
+     */
+    @Transactional
+    public void resendTo(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
+        sendVerificationMail(user);
+    }
+
+    /**
      * 링크의 원문 토큰을 검증하고 계정을 인증 상태로 바꾼다.
      *
      * 만료·사용됨·없음을 모두 같은 에러로 묶는 이유: 셋을 구분해 주면 "이 토큰은 존재하지만
