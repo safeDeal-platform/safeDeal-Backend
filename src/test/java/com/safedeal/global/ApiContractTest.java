@@ -5,8 +5,10 @@ import com.safedeal.testsupport.IntegrationTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.util.AssertionErrors;
 
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.not;
@@ -66,6 +68,28 @@ class ApiContractTest extends IntegrationTestSupport {
         mockMvc.perform(get("/api/v1/listings"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("C002"));
+    }
+
+    @Test
+    @DisplayName("카테고리 목록은 화이트리스트 — 인증 없이 조회된다")
+    void categories_isWhitelisted() throws Exception {
+        mockMvc.perform(get("/api/categories"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+    }
+
+    @Test
+    @DisplayName("카테고리는 조회만 열려 있다 — 인증 없는 쓰기는 통과하지 않는다")
+    void categories_writeIsNotWhitelisted() throws Exception {
+        mockMvc.perform(post("/api/categories")
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(result -> {
+                    int status = result.getResponse().getStatus();
+                    // POST 매핑이 없으면 405, 시큐리티가 먼저 걸리면 401. 어느 쪽이든
+                    // "인증 없이 쓰기가 통과하지는 않는다"가 고정된다.
+                    AssertionErrors.assertTrue(
+                            "인증 없는 쓰기가 통과했다: " + status, status == 401 || status == 405);
+                });
     }
 
     // ── requestId ─────────────────────────────────────────────
