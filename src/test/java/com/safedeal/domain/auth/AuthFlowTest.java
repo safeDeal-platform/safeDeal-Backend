@@ -15,6 +15,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -77,6 +78,14 @@ class AuthFlowTest {
         return """
                 {"email":"%s","password":"password123","nickname":"%s"}
                 """.formatted(email, nickname);
+    }
+
+    private MockHttpServletRequestBuilder loginRequest(String email, String password) {
+        return post("/api/v1/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"email":"%s","password":"%s"}
+                        """.formatted(email, password));
     }
 
     private MvcResult signup(String email, String nickname) throws Exception {
@@ -282,5 +291,71 @@ class AuthFlowTest {
     @DisplayName("공개 경로는 토큰 없이도 열려 있다 (인증 필터가 공개 API를 막지 않는다)")
     void publicEndpointsRemainOpen() throws Exception {
         mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("비밀번호를 5회 틀리면 잠기고, 잠긴 동안에는 올바른 비밀번호도 통과하지 않는다 (AUTH-8)")
+    void bruteForceLocksAccount() throws Exception {
+        String email = unique("brute") + "@test.com";
+        signup(email, unique("무차별"));
+
+        // 5회까지는 잠금 검사를 통과하고 대조에서 떨어진다.
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            mockMvc.perform(loginRequest(email, "wrong-password"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error.code").value("AUTH003"));
+        }
+
+        // 6번째부터는 대조 자체를 하지 않고 잠금으로 막는다.
+        mockMvc.perform(loginRequest(email, "wrong-password"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("AUTH006"));
+
+        // 잠금이 비밀번호 대조보다 앞이라는 것이 핵심이다. 맞는 비밀번호가 통과해버리면
+        // 공격자는 잠긴 뒤에도 대입을 계속할 수 있어 잠금이 아무것도 막지 못한다.
+        mockMvc.perform(loginRequest(email, "password123"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("AUTH006"));
+    }
+
+    @Test
+    @DisplayName("로그인에 성공하면 실패 카운터가 초기화된다")
+    void successfulLoginClearsFailureCounter() throws Exception {
+        String email = unique("counter") + "@test.com";
+        signup(email, unique("카운터"));
+
+        for (int attempt = 1; attempt <= 4; attempt++) {
+            mockMvc.perform(loginRequest(email, "wrong-password"))
+                    .andExpect(status().isUnauthorized());
+        }
+        mockMvc.perform(loginRequest(email, "password123")).andExpect(status().isOk());
+
+        // 초기화되지 않았다면 아래 4회 중 첫 번째에서 누적 5회에 도달해 429가 났을 것이다.
+        // 정상 사용자가 오타 몇 번 낸 뒤 로그인에 성공했는데 다음 날 잠기는 일을 막는다.
+        for (int attempt = 1; attempt <= 4; attempt++) {
+            mockMvc.perform(loginRequest(email, "wrong-password"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error.code").value("AUTH003"));
+        }
+    }
+
+    @Test
+    @DisplayName("잠금은 계정 단위라 다른 계정의 로그인을 막지 않는다")
+    void lockIsScopedToAccount() throws Exception {
+        String locked = unique("victim") + "@test.com";
+        String other = unique("bystander") + "@test.com";
+        signup(locked, unique("피해자"));
+        signup(other, unique("이웃"));
+
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            mockMvc.perform(loginRequest(locked, "wrong-password"))
+                    .andExpect(status().isUnauthorized());
+        }
+        mockMvc.perform(loginRequest(locked, "password123"))
+                .andExpect(status().isTooManyRequests());
+
+        // 같은 IP에서 온 다른 계정까지 잠기면 공유 IP(회사·학교) 사용자가 통째로 막힌다.
+        mockMvc.perform(loginRequest(other, "password123"))
+                .andExpect(status().isOk());
     }
 }
