@@ -3,6 +3,7 @@ package com.safedeal.domain.auth.service;
 import com.safedeal.domain.auth.entity.EmailVerificationToken;
 import com.safedeal.domain.auth.exception.AuthErrorCode;
 import com.safedeal.domain.auth.repository.EmailVerificationTokenRepository;
+import com.safedeal.domain.auth.repository.MailSendRateLimiter;
 import com.safedeal.domain.user.entity.User;
 import com.safedeal.domain.user.repository.UserRepository;
 import com.safedeal.global.exception.BusinessException;
@@ -35,6 +36,7 @@ public class EmailVerificationService {
     private static final String SUBJECT = "[SafeDeal] 이메일 인증을 완료해 주세요";
 
     private final EmailVerificationTokenRepository tokenRepository;
+    private final MailSendRateLimiter mailSendRateLimiter;
     private final UserRepository userRepository;
     private final MailSender mailSender;
     private final MailProperties mailProperties;
@@ -69,6 +71,9 @@ public class EmailVerificationService {
      */
     @Transactional
     public void resendTo(Long userId) {
+        if (!mailSendRateLimiter.allowVerificationResend(userId)) {
+            throw new BusinessException(AuthErrorCode.TOO_MANY_MAIL_REQUESTS);
+        }
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
         sendVerificationMail(user);

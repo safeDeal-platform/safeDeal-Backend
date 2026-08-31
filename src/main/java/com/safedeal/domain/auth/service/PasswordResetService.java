@@ -2,6 +2,7 @@ package com.safedeal.domain.auth.service;
 
 import com.safedeal.domain.auth.entity.PasswordResetToken;
 import com.safedeal.domain.auth.exception.AuthErrorCode;
+import com.safedeal.domain.auth.repository.MailSendRateLimiter;
 import com.safedeal.domain.auth.repository.PasswordResetTokenRepository;
 import com.safedeal.domain.auth.repository.RefreshTokenStore;
 import com.safedeal.domain.user.entity.User;
@@ -34,6 +35,7 @@ public class PasswordResetService {
     private static final String SUBJECT = "[SafeDeal] 비밀번호 재설정 안내";
 
     private final PasswordResetTokenRepository tokenRepository;
+    private final MailSendRateLimiter mailSendRateLimiter;
     private final UserRepository userRepository;
     private final RefreshTokenStore refreshTokenStore;
     private final PasswordEncoder passwordEncoder;
@@ -51,7 +53,12 @@ public class PasswordResetService {
      * 진짜 주인만 읽을 수 있는 메일로 옮기는 것이다(정책).
      */
     @Transactional
-    public void requestReset(String email) {
+    public void requestReset(String email, String clientIp) {
+        // 계정을 보기 전에 센다. 존재하는 주소만 세면 429가 나오는지 여부로 가입 여부를
+        // 알 수 있어, 열거를 막으려고 응답을 맞춰둔 노력이 그대로 무너진다.
+        if (!mailSendRateLimiter.allowPasswordResetRequest(JwtTokenProvider.hash(email), clientIp)) {
+            throw new BusinessException(AuthErrorCode.TOO_MANY_MAIL_REQUESTS);
+        }
         Optional<User> found = userRepository.findByEmailAndDeletedAtIsNull(email);
         if (found.isEmpty()) {
             return;

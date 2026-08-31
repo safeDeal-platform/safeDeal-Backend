@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockCookie;
@@ -31,6 +32,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -87,15 +89,29 @@ class AuthAccountRecoveryTest {
     @Autowired
     PasswordResetTokenRepository passwordResetTokenRepository;
 
+    @Autowired
+    StringRedisTemplate redisTemplate;
+
     private static int sequence = 0;
 
     private static String unique(String prefix) {
         return prefix + (++sequence);
     }
 
+    /**
+     * 우편함과 발송 제한 카운터를 테스트마다 비운다.
+     *
+     * 카운터를 비우는 이유: 제한 키는 이메일 해시와 <b>IP</b>로 만들어지는데 MockMvc의 요청은
+     * 전부 같은 IP에서 온다. 비우지 않으면 재설정을 호출하는 테스트가 쌓이다가 어느 순간
+     * 뒤쪽 테스트만 429로 깨진다 — 실행 순서에 따라 붙었다 떨어졌다 하는 테스트가 된다.
+     */
     @BeforeEach
-    void resetMailbox() {
+    void resetMailboxAndRateLimits() {
         mailSender.clear();
+        Set<String> keys = redisTemplate.keys("auth:mail-rate:v1:*");
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+        }
     }
 
     private MvcResult signup(String email, String nickname) throws Exception {
@@ -333,6 +349,71 @@ class AuthAccountRecoveryTest {
 
         // 400을 주면서 비밀번호는 바꿔버리면 최악이므로 로그인으로 확인한다.
         login(email, "password123").andExpect(status().isOk());
+    }
+
+    // ---------- 발송 제한 ----------
+
+    @Test
+    @DisplayName("재설정 요청은 주소당 시간당 3통까지고, 넘으면 AUTH010")
+    void resetRequestIsRateLimitedPerAddress() throws Exception {
+        String email = unique("flood") + "@test.com";
+        signup(email, unique("폭주"));
+        mailSender.clear();
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            resetRequest(email).andExpect(status().isOk());
+        }
+        resetRequest(email)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("AUTH010"));
+
+        // 제한에 걸린 요청은 메일을 만들지 않아야 한다. 429만 주고 메일은 나가면
+        // 메일함 폭격도 공급자 쿼터 소모도 그대로다.
+        assertThat(mailSender.sentTo(email)).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("가입되지 않은 주소도 똑같이 제한된다 (429 여부로 가입을 알 수 없다)")
+    void rateLimitDoesNotRevealWhetherAccountExists() throws Exception {
+        String registered = unique("limited-known") + "@test.com";
+        String unregistered = unique("limited-unknown") + "@test.com";
+        signup(registered, unique("있는계정"));
+        mailSender.clear();
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            resetRequest(registered).andExpect(status().isOk());
+            resetRequest(unregistered).andExpect(status().isOk());
+        }
+
+        // 계정 조회보다 제한 검사가 앞에 있어야 여기서 두 응답이 같다. 순서가 뒤집히면
+        // 없는 주소는 계속 200이고 있는 주소만 429가 되어, 이 API가 다시 가입 여부 조회기가 된다.
+        String forRegistered = resetRequest(registered)
+                .andExpect(status().isTooManyRequests()).andReturn().getResponse().getContentAsString();
+        String forUnregistered = resetRequest(unregistered)
+                .andExpect(status().isTooManyRequests()).andReturn().getResponse().getContentAsString();
+        assertThat(objectMapper.readTree(forRegistered).path("error").path("code").asText())
+                .isEqualTo(objectMapper.readTree(forUnregistered).path("error").path("code").asText());
+    }
+
+    @Test
+    @DisplayName("인증 메일 재발송도 계정당 시간당 3통까지다")
+    void verificationResendIsRateLimited() throws Exception {
+        String email = unique("resend-limit") + "@test.com";
+        MvcResult signedUp = signup(email, unique("재발송제한"));
+        String access = accessTokenOf(signedUp);
+        mailSender.clear();
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            mockMvc.perform(post("/api/v1/auth/email/verification")
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + access))
+                    .andExpect(status().isOk());
+        }
+        mockMvc.perform(post("/api/v1/auth/email/verification")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + access))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("AUTH010"));
+
+        assertThat(mailSender.sentTo(email)).hasSize(3);
     }
 
     @Test

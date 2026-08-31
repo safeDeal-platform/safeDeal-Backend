@@ -137,8 +137,8 @@ public class AuthController {
      */
     @PostMapping("/password/reset-request")
     public ResponseEntity<ApiResponse<Void>> requestPasswordReset(
-            @Valid @RequestBody PasswordResetRequest request) {
-        passwordResetService.requestReset(request.email());
+            @Valid @RequestBody PasswordResetRequest request, HttpServletRequest servletRequest) {
+        passwordResetService.requestReset(request.email(), clientIp(servletRequest));
         return ResponseEntity.ok(ApiResponse.success());
     }
 

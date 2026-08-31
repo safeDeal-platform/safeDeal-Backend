@@ -39,7 +39,11 @@ public enum AuthErrorCode implements ErrorCode {
     // 재설정 토큰도 같은 이유로 만료·사용됨·없음을 구분하지 않는다.
     INVALID_PASSWORD_RESET_TOKEN(HttpStatus.BAD_REQUEST, "AUTH009",
             "재설정 링크가 유효하지 않거나 만료되었습니다."),
-    // AUTH010 이후는 OAuth(AUTH-5)에서 이어서 쓴다.
+    // 메일을 유발하는 요청(재설정 링크 요청·인증 메일 재발송)의 호출 제한.
+    // 로그인 잠금(AUTH006)과 나누는 이유는 원인도 안내 문구도 다르기 때문이다.
+    TOO_MANY_MAIL_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "AUTH010",
+            "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),
+    // AUTH011 이후는 OAuth(AUTH-5)에서 이어서 쓴다.
     ;
 
     private final HttpStatus status;
