@@ -36,8 +36,18 @@ class CategorySeederTest extends IntegrationTestSupport {
             CategorySeedData.ROOTS.stream().mapToInt(r -> r.leaves().size()).sum();
     private static final int TOTAL = ROOT_COUNT + LEAF_COUNT;
 
+    /**
+     * 이 클래스는 {@code @Transactional}이 아니라 변경이 실제로 커밋된다. 지우기만 하고 끝내면
+     * <b>뒤에 도는 다른 테스트 클래스가 빈 카테고리 테이블을 보게 된다</b> — 시더가 넣어둔
+     * 분류를 전제로 하는 비트랜잭션 테스트가 그때부터 깨진다. 그래서 지운 뒤 반드시 되돌린다.
+     */
     @AfterEach
-    void clear() {
+    void restoreSeed() {
+        clear();
+        categorySeeder.run(null);
+    }
+
+    private void clear() {
         // 자식이 부모를 FK로 참조하므로 중분류를 먼저 지운다. 한 번에 지우면 순서에 따라
         // 외래키 위반이 난다.
         List<Category> all = categoryRepository.findAll();
