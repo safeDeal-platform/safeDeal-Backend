@@ -205,6 +205,69 @@ public class Listing extends MutableEntity {
         return !isDeleted() && status.isViewable();
     }
 
+    /**
+     * 내용을 수정한다. 상태·권한 확인은 서비스가 먼저 하고, 여기서는 값 불변식만 지킨다.
+     *
+     * <p>가격을 내리는 경우에만 하루 한도를 센다. 올리거나 그대로 두는 건 세지 않는다 —
+     * 막으려는 것이 "내렸다 올렸다를 반복해 목록 상단에 계속 뜨는 행위"이기 때문이다.
+     *
+     * @param today 오늘 날짜. 서버 시계를 직접 읽지 않고 받는다 — 그래야 날짜 경계 동작을
+     *              테스트로 고정할 수 있다.
+     * @throws PriceDropLimitExceededException 하루 인하 한도를 넘긴 경우
+     */
+    public void update(String title, String description, int price, Category category,
+                       ItemCondition itemCondition, LocalDate today) {
+        requireText(title, "title");
+        requireText(description, "description");
+        validatePrice(price);
+        requireLeafCategory(category);
+        if (itemCondition == null) {
+            throw new IllegalArgumentException("물품 상태는 필수입니다");
+        }
+
+        if (price < this.price) {
+            countPriceDrop(today);
+        }
+        this.title = title.strip();
+        this.description = description;
+        this.price = price;
+        this.category = category;
+        this.itemCondition = itemCondition;
+    }
+
+    private void countPriceDrop(LocalDate today) {
+        if (!today.equals(priceDropDate)) {
+            priceDropDate = today;
+            priceDropCount = 0;
+        }
+        if (priceDropCount >= MAX_PRICE_DROPS_PER_DAY) {
+            throw new PriceDropLimitExceededException();
+        }
+        priceDropCount++;
+    }
+
+    /** 하루 인하 한도를 넘겼을 때. 서비스가 도메인 에러 코드로 옮긴다. */
+    public static class PriceDropLimitExceededException extends RuntimeException {
+    }
+
+    /**
+     * 소프트 삭제. 물리 삭제하지 않는 이유는 거래 기록이 고아가 되고 사기 후 증거 인멸이
+     * 가능해지기 때문이다.
+     *
+     * <p>차단된 매물은 지울 수 없다 — 제재 근거가 사라진다.
+     */
+    public void softDelete(Instant now) {
+        if (isDeleted()) {
+            return;
+        }
+        // 삭제도 상태 전이다. 전이표를 우회하면 규칙을 한 곳에 모아둔 의미가 없어진다.
+        if (!status.canTransitionTo(ListingStatus.DELETED)) {
+            throw new IllegalStateException("지금 상태에서는 삭제할 수 없습니다: " + status);
+        }
+        this.deletedAt = now;
+        this.status = ListingStatus.DELETED;
+    }
+
     private static void validatePrice(int price) {
         if (price < MIN_PRICE || price > MAX_PRICE) {
             throw new IllegalArgumentException(

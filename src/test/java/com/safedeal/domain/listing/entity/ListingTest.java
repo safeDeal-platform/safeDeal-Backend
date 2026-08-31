@@ -1,5 +1,7 @@
 package com.safedeal.domain.listing.entity;
 
+import java.time.LocalDate;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -81,6 +83,87 @@ class ListingTest {
         assertThat(listing.getTitle()).isEqualTo("아이폰");
         assertThat(listing.getRegionSido()).isEqualTo("서울특별시");
         assertThat(listing.getRegionSigungu()).isEqualTo("강남구");
+    }
+
+    @Test
+    @DisplayName("가격 인하는 하루 2회까지만 된다")
+    void priceDropLimit() {
+        Listing listing = register(900_000, leaf(), false);
+        LocalDate today = LocalDate.of(2026, 8, 31);
+        Category category = listing.getCategory();
+
+        listing.update("t", "d", 800_000, category, ItemCondition.USED, today);
+        listing.update("t", "d", 700_000, category, ItemCondition.USED, today);
+
+        assertThatThrownBy(() ->
+                listing.update("t", "d", 600_000, category, ItemCondition.USED, today))
+                .isInstanceOf(Listing.PriceDropLimitExceededException.class);
+        assertThat(listing.getPrice()).isEqualTo(700_000);
+    }
+
+    @Test
+    @DisplayName("날짜가 바뀌면 인하 횟수가 리셋된다")
+    void priceDropResetsNextDay() {
+        Listing listing = register(900_000, leaf(), false);
+        Category category = listing.getCategory();
+        LocalDate day1 = LocalDate.of(2026, 8, 31);
+
+        listing.update("t", "d", 800_000, category, ItemCondition.USED, day1);
+        listing.update("t", "d", 700_000, category, ItemCondition.USED, day1);
+
+        listing.update("t", "d", 600_000, category, ItemCondition.USED, day1.plusDays(1));
+
+        assertThat(listing.getPrice()).isEqualTo(600_000);
+        assertThat(listing.getPriceDropCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("가격을 올리거나 그대로 두면 인하 횟수를 세지 않는다")
+    void raisingPriceDoesNotCount() {
+        Listing listing = register(900_000, leaf(), false);
+        Category category = listing.getCategory();
+        LocalDate today = LocalDate.of(2026, 8, 31);
+
+        listing.update("t", "d", 950_000, category, ItemCondition.USED, today);
+        listing.update("t", "d", 950_000, category, ItemCondition.USED, today);
+        listing.update("t", "d", 990_000, category, ItemCondition.USED, today);
+
+        assertThat(listing.getPriceDropCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("삭제하면 상태와 삭제 시각이 함께 바뀐다")
+    void softDelete() {
+        Listing listing = register(900_000, leaf(), false);
+
+        listing.softDelete(java.time.Instant.parse("2026-08-31T00:00:00Z"));
+
+        assertThat(listing.isDeleted()).isTrue();
+        assertThat(listing.getStatus()).isEqualTo(ListingStatus.DELETED);
+        assertThat(listing.isListable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("검증 대기 매물은 삭제할 수 없다 - 전이표에 없는 경로")
+    void pendingCannotBeDeleted() {
+        Listing listing = register(900_000, leaf(), true);
+
+        assertThatThrownBy(() -> listing.softDelete(java.time.Instant.now()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("삭제할 수 없습니다");
+        assertThat(listing.isDeleted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("이미 삭제된 매물을 다시 지워도 조용히 넘어간다")
+    void deleteIsIdempotent() {
+        Listing listing = register(900_000, leaf(), false);
+        java.time.Instant first = java.time.Instant.parse("2026-08-31T00:00:00Z");
+        listing.softDelete(first);
+
+        listing.softDelete(java.time.Instant.parse("2026-09-01T00:00:00Z"));
+
+        assertThat(listing.getDeletedAt()).isEqualTo(first);
     }
 
     @Test

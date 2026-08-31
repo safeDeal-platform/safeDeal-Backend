@@ -1,6 +1,8 @@
 package com.safedeal.domain.listing.service;
 
 import com.safedeal.domain.listing.dto.ListingCreateRequest;
+import com.safedeal.domain.listing.dto.ListingStatusChangeRequest;
+import com.safedeal.domain.listing.dto.ListingUpdateRequest;
 import com.safedeal.domain.listing.dto.ListingCreateResponse;
 import com.safedeal.domain.listing.entity.Category;
 import com.safedeal.domain.listing.entity.ItemCondition;
@@ -21,12 +23,14 @@ import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.Optional;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -80,6 +84,63 @@ class ListingCommandServiceTest {
         ListingCreateResponse response = listingCommandService.register(1L, request("DIGITAL_PHONE"));
 
         assertThat(response.status()).isEqualTo(ListingStatus.PENDING_VERIFICATION);
+    }
+
+    private Listing activeListing(Long sellerId) {
+        return Listing.register(PUBLIC_ID, sellerId, "아이폰", "설명", 950_000,
+                leaf(), ItemCondition.LIKE_NEW, "서울특별시", "강남구", false);
+    }
+
+    private ListingUpdateRequest updateRequest(int price, Long version) {
+        return new ListingUpdateRequest("수정 제목", price, "DIGITAL_PHONE", "수정 설명",
+                ItemCondition.USED, version);
+    }
+
+    @Test
+    @DisplayName("남의 매물은 수정할 수 없다")
+    void cannotUpdateOthersListing() {
+        when(listingRepository.findByPublicIdAndDeletedAtIsNull(PUBLIC_ID))
+                .thenReturn(Optional.of(activeListing(1L)));
+
+        assertThatThrownBy(() ->
+                listingCommandService.update(999L, PUBLIC_ID, updateRequest(900_000, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("판매자 본인");
+    }
+
+    @Test
+    @DisplayName("남의 매물은 삭제할 수 없다")
+    void cannotDeleteOthersListing() {
+        when(listingRepository.findByPublicIdAndDeletedAtIsNull(PUBLIC_ID))
+                .thenReturn(Optional.of(activeListing(1L)));
+
+        assertThatThrownBy(() -> listingCommandService.delete(999L, PUBLIC_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("판매자 본인");
+    }
+
+    @Test
+    @DisplayName("없는 매물이면 404를 던진다")
+    void notFound() {
+        when(listingRepository.findByPublicIdAndDeletedAtIsNull(PUBLIC_ID))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> listingCommandService.delete(1L, PUBLIC_ID))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("찾을 수 없습니다");
+    }
+
+    @Test
+    @DisplayName("전이가 선점되어 0행이면 409를 던진다")
+    void statusChangeConflict() {
+        when(listingRepository.findByPublicIdAndDeletedAtIsNull(PUBLIC_ID))
+                .thenReturn(Optional.of(activeListing(1L)));
+        when(listingRepository.markSoldByOwner(any(), anyLong(), any(Instant.class))).thenReturn(0);
+
+        assertThatThrownBy(() -> listingCommandService.changeStatus(1L, PUBLIC_ID,
+                new ListingStatusChangeRequest(ListingStatusChangeRequest.Action.MARK_SOLD)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("처리할 수 없습니다");
     }
 
     @Test
