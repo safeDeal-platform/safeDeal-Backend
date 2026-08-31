@@ -85,10 +85,15 @@ public class ListingQueryService {
         return new CursorResponse<>(items, nextCursor, hasNext);
     }
 
-    /** 공개 상세. 삭제·비공개 매물은 존재를 알리지 않기 위해 404로 돌려준다. */
+    /**
+     * 공개 상세.
+     *
+     * <p>차단·삭제된 매물은 존재 자체를 알리지 않으려 404로 돌려준다(명세). 반면 <b>팔린 매물은
+     * 열어준다</b> — 거래 당사자가 나중에 확인하고, 채팅·신고에서 넘어온 링크가 죽지 않아야 한다.
+     */
     public ListingDetailResponse getListing(String publicId) {
         Listing listing = listingRepository.findByPublicIdAndDeletedAtIsNull(publicId)
-                .filter(Listing::isVisibleToPublic)
+                .filter(Listing::isViewable)
                 .orElseThrow(() -> new BusinessException(
                         CommonErrorCode.RESOURCE_NOT_FOUND, "매물을 찾을 수 없습니다."));
         return ListingDetailResponse.from(listing);

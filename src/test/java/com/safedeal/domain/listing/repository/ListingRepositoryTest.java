@@ -7,12 +7,14 @@ import com.safedeal.testsupport.IntegrationTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import jakarta.persistence.EntityManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 커서 페이징이 실제 MySQL에서 건너뜀·중복 없이 도는지 확인한다. 정렬과 keyset 조건은 메모리
@@ -26,6 +28,9 @@ class ListingRepositoryTest extends IntegrationTestSupport {
 
     @Autowired
     CategoryRepository categoryRepository;
+
+    @Autowired
+    EntityManager entityManager;
 
     private Category phone;
     private Category tablet;
@@ -120,6 +125,22 @@ class ListingRepositoryTest extends IntegrationTestSupport {
         List<Listing> byPrice = listingRepository.findPublicPage(new ListingSearchCondition(
                 List.of(), null, null, 50_000, null, null, null, 10));
         assertThat(byPrice).extracting(Listing::getTitle).containsExactly("강남비싼것");
+    }
+
+    @Test
+    @DisplayName("가격 제약이 DB에도 걸려 있다 - 자바 검증을 건너뛴 경로도 막힌다")
+    void priceCheckConstraintIsEnforcedByDatabase() {
+        Listing saved = save("정상", 10_000, phone, "강남구");
+
+        // 엔티티 팩토리를 우회하는 경로(이벤트 수신·배치)를 흉내 낸다. 애노테이션만 붙이고
+        // 실제 DDL에 CHECK가 안 들어갔다면 이 UPDATE가 그대로 통과한다.
+        assertThatThrownBy(() -> {
+            entityManager.createNativeQuery(
+                            "UPDATE listings SET price = 1 WHERE id = :id")
+                    .setParameter("id", saved.getId())
+                    .executeUpdate();
+            entityManager.flush();
+        }).hasMessageContaining("ck_listings_price");
     }
 
     @Test

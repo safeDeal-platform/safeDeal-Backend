@@ -1,6 +1,7 @@
 package com.safedeal.domain.listing.entity;
 
 import com.safedeal.global.entity.MutableEntity;
+import jakarta.persistence.CheckConstraint;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -42,6 +43,12 @@ import java.time.LocalDate;
         name = "listings",
         uniqueConstraints = @UniqueConstraint(
                 name = "uk_listings_public_id", columnNames = "public_id"),
+        // 정책이 DTO 검증과 DB 제약의 병행을 요구한다. 컨트롤러를 안 거치는 경로(이벤트
+        // 수신·배치)로 들어온 값 하나가 가격 통계 전체를 오염시키기 때문이다.
+        // Hibernate의 @Check는 7에서 deprecated라 Jakarta Persistence 3.2 표준을 쓴다.
+        check = @CheckConstraint(
+                name = "ck_listings_price",
+                constraint = "price BETWEEN 1000 AND 100000000"),
         indexes = {
                 // 목록 조회의 기본 정렬(created_at DESC, id DESC)과 노출 조건을 함께 태운다.
                 @Index(name = "idx_listings_status_created",
@@ -188,9 +195,14 @@ public class Listing extends MutableEntity {
         return deletedAt != null;
     }
 
-    /** 목록·상세에 내보내도 되는지. 삭제됐거나 공개 상태가 아니면 없는 것으로 취급한다. */
-    public boolean isVisibleToPublic() {
-        return !isDeleted() && status.isPubliclyVisible();
+    /** 목록에 실어도 되는지. */
+    public boolean isListable() {
+        return !isDeleted() && status.isListable();
+    }
+
+    /** 상세로 열어줘도 되는지. 목록과 기준이 다르다 — 팔린 매물의 상세는 열려 있어야 한다. */
+    public boolean isViewable() {
+        return !isDeleted() && status.isViewable();
     }
 
     private static void validatePrice(int price) {

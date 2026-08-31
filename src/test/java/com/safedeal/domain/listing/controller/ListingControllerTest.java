@@ -67,14 +67,18 @@ class ListingControllerTest {
     @DisplayName("상세는 public_id로 조회하고 내부 id를 노출하지 않는다")
     void detailShape() throws Exception {
         when(queryService.getListing("01J3A")).thenReturn(new ListingDetailResponse(
-                "01J3A", "아이폰", "설명", 950_000, "DIGITAL_PHONE", "스마트폰",
-                ItemCondition.LIKE_NEW, "서울특별시", "강남구", ListingStatus.ACTIVE, 0,
-                Instant.parse("2026-08-30T00:00:00Z"), Instant.parse("2026-08-30T00:00:00Z")));
+                "01J3A", "아이폰", "설명", 950_000,
+                new ListingDetailResponse.CategoryRef("DIGITAL_PHONE", "스마트폰", "디지털기기"),
+                ItemCondition.LIKE_NEW,
+                new ListingDetailResponse.RegionRef("서울특별시", "강남구"),
+                ListingStatus.ACTIVE, 0, Instant.parse("2026-08-30T00:00:00Z")));
 
         mockMvc.perform(get("/api/listings/01J3A"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.publicId").value("01J3A"))
-                .andExpect(jsonPath("$.data.categoryCode").value("DIGITAL_PHONE"))
+                .andExpect(jsonPath("$.data.category.code").value("DIGITAL_PHONE"))
+                .andExpect(jsonPath("$.data.category.parentName").value("디지털기기"))
+                .andExpect(jsonPath("$.data.region.sigungu").value("강남구"))
                 .andExpect(jsonPath("$.data.id").doesNotExist())
                 .andExpect(jsonPath("$.data.sellerId").doesNotExist());
     }

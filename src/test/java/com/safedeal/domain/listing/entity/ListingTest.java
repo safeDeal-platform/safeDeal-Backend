@@ -26,7 +26,7 @@ class ListingTest {
         Listing listing = register(950_000, leaf(), false);
 
         assertThat(listing.getStatus()).isEqualTo(ListingStatus.ACTIVE);
-        assertThat(listing.isVisibleToPublic()).isTrue();
+        assertThat(listing.isListable()).isTrue();
     }
 
     @Test
@@ -35,7 +35,7 @@ class ListingTest {
         Listing listing = register(950_000, leaf(), true);
 
         assertThat(listing.getStatus()).isEqualTo(ListingStatus.PENDING_VERIFICATION);
-        assertThat(listing.isVisibleToPublic()).isFalse();
+        assertThat(listing.isListable()).isFalse();
     }
 
     @Test

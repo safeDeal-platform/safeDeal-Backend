@@ -35,6 +35,13 @@ class ListingStatusTest {
     }
 
     @Test
+    @DisplayName("정책에 없는 전이는 열지 않는다 - 초안·검증대기에서 바로 삭제 불가")
+    void undocumentedTransitionsClosed() {
+        assertThat(ListingStatus.DRAFT.canTransitionTo(ListingStatus.DELETED)).isFalse();
+        assertThat(ListingStatus.PENDING_VERIFICATION.canTransitionTo(ListingStatus.DELETED)).isFalse();
+    }
+
+    @Test
     @DisplayName("삭제는 종착점이라 어디로도 나가지 않는다")
     void deletedIsTerminal() {
         for (ListingStatus target : ListingStatus.values()) {
@@ -43,11 +50,34 @@ class ListingStatusTest {
     }
 
     @Test
-    @DisplayName("공개되는 상태는 ACTIVE 하나뿐이다")
-    void onlyActiveIsPublic() {
+    @DisplayName("목록에 실리는 상태는 ACTIVE 하나뿐이다")
+    void onlyActiveIsListable() {
         for (ListingStatus s : ListingStatus.values()) {
-            assertThat(s.isPubliclyVisible()).isEqualTo(s == ListingStatus.ACTIVE);
+            assertThat(s.isListable()).isEqualTo(s == ListingStatus.ACTIVE);
         }
+    }
+
+    @Test
+    @DisplayName("상세는 팔린 매물까지 열어준다 - 목록과 기준이 다르다")
+    void viewableIncludesSold() {
+        assertThat(ListingStatus.ACTIVE.isViewable()).isTrue();
+        assertThat(ListingStatus.SOLD.isViewable()).isTrue();
+        assertThat(ListingStatus.BLOCKED.isViewable()).isFalse();
+        assertThat(ListingStatus.DELETED.isViewable()).isFalse();
+        assertThat(ListingStatus.PENDING_VERIFICATION.isViewable()).isFalse();
+        assertThat(ListingStatus.DRAFT.isViewable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("차단된 매물은 삭제로 내리지 않는다 - 제재 근거가 사라진다")
+    void blockedCannotBeDeleted() {
+        assertThat(ListingStatus.BLOCKED.canTransitionTo(ListingStatus.DELETED)).isFalse();
+    }
+
+    @Test
+    @DisplayName("검증 대기에서 차단으로 갈 수 있다 - 점수가 차단 구간인 경우")
+    void pendingCanBeBlocked() {
+        assertThat(ListingStatus.PENDING_VERIFICATION.canTransitionTo(ListingStatus.BLOCKED)).isTrue();
     }
 
     @Test

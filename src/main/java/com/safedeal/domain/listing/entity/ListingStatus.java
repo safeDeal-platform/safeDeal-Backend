@@ -40,14 +40,18 @@ public enum ListingStatus {
             new EnumMap<>(ListingStatus.class);
 
     static {
-        ALLOWED.put(DRAFT, EnumSet.of(PENDING_VERIFICATION, ACTIVE, DELETED));
-        ALLOWED.put(PENDING_VERIFICATION, EnumSet.of(ACTIVE, DELETED));
+        // 정책이 명시한 전이만 넣는다 — "그 외 전이 금지"가 원칙이라, 있으면 편할 것 같은
+        // 전이를 미리 열어두지 않는다.
+        ALLOWED.put(DRAFT, EnumSet.of(PENDING_VERIFICATION, ACTIVE));
+        // 검증 점수가 차단 구간이면 공개되지 못하고 곧바로 차단된다.
+        ALLOWED.put(PENDING_VERIFICATION, EnumSet.of(ACTIVE, BLOCKED));
         // 이미지를 바꾸면 낡은 승인이 그대로 붙는 것을 막으려 검증 대기로 되돌린다.
         ALLOWED.put(ACTIVE, EnumSet.of(SOLD, BLOCKED, DELETED, PENDING_VERIFICATION));
         // 수동 SOLD 되돌리기(24시간)와 결제 환불 복구가 이 경로를 쓴다.
         ALLOWED.put(SOLD, EnumSet.of(ACTIVE, DELETED));
-        // 재검증을 통과하면 다시 공개된다.
-        ALLOWED.put(BLOCKED, EnumSet.of(ACTIVE, DELETED));
+        // 재검증을 통과하면 다시 공개된다. DELETED로는 내리지 않는다 — 제재 건을 지우면
+        // 거래 스냅샷·주문·신고 이력이 고아가 되고 이의제기 시 근거가 사라진다.
+        ALLOWED.put(BLOCKED, EnumSet.of(ACTIVE));
         // 삭제는 종착점이다.
         ALLOWED.put(DELETED, EnumSet.noneOf(ListingStatus.class));
     }
@@ -56,9 +60,23 @@ public enum ListingStatus {
         return target != null && ALLOWED.get(this).contains(target);
     }
 
-    /** 목록·검색에 노출되는 상태인지. 거부 목록이 아니라 허용 목록으로 판단한다 — 상태가 추가돼도 노출 사고가 나지 않는다. */
-    public boolean isPubliclyVisible() {
+    /**
+     * 목록·검색에 노출되는 상태인지. 거부 목록이 아니라 허용 목록으로 판단한다 — 상태가
+     * 추가돼도 노출 사고가 나지 않는다.
+     */
+    public boolean isListable() {
         return this == ACTIVE;
+    }
+
+    /**
+     * 상세 조회로 열어주는 상태인지.
+     *
+     * <p>목록과 기준이 다르다 — 팔린 매물은 목록에서 빠지지만 상세는 열려 있어야 한다.
+     * 거래 당사자가 나중에 무엇을 샀는지 확인하고, 채팅·신고에서 넘어온 링크가 죽지 않아야
+     * 하기 때문이다. 차단·삭제만 없는 것으로 취급한다.
+     */
+    public boolean isViewable() {
+        return this == ACTIVE || this == SOLD;
     }
 
     /** 내용 수정이 허용되는 상태인지. */
