@@ -114,6 +114,11 @@ public class User extends MutableEntity {
         this.lastLoginAt = at;
     }
 
+    /** 이메일 인증 완료 (AUTH-6). 이미 인증된 계정에 다시 불러도 무해하다. */
+    public void verifyEmail() {
+        this.emailVerified = true;
+    }
+
     /** 로그인·토큰 발급을 허용해도 되는 상태인지. 제재·탈퇴 계정은 여기서 걸린다. */
     public boolean isLoginAllowed() {
         return status == UserStatus.ACTIVE && deletedAt == null;

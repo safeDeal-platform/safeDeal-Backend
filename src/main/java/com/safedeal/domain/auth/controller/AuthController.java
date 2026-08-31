@@ -1,12 +1,17 @@
 package com.safedeal.domain.auth.controller;
 
+import com.safedeal.domain.auth.dto.EmailVerifyRequest;
 import com.safedeal.domain.auth.dto.LoginRequest;
 import com.safedeal.domain.auth.dto.SignupRequest;
 import com.safedeal.domain.auth.dto.TokenResponse;
 import com.safedeal.domain.auth.exception.AuthErrorCode;
 import com.safedeal.domain.auth.service.AuthCommandService;
+import com.safedeal.domain.auth.service.EmailVerificationService;
 import com.safedeal.domain.auth.service.AuthTokens;
 import com.safedeal.global.exception.BusinessException;
+import com.safedeal.domain.user.entity.User;
+import com.safedeal.domain.user.repository.UserRepository;
+import com.safedeal.global.security.AuthenticatedUser;
 import com.safedeal.global.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -15,6 +20,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -31,7 +37,7 @@ import java.time.Instant;
  * 보관한다(localStorage 금지). refresh는 httpOnly + Secure + SameSite=Lax 쿠키로만 나가며,
  * 경로를 /api/v1/auth로 좁혀 일반 데이터 요청에는 아예 실리지 않게 한다.
  *
- * 이메일 인증·비밀번호 찾기(AUTH-6·7)와 OAuth(AUTH-5)는 후속 PR에서 이 컨트롤러에 추가된다.
+ * OAuth(AUTH-5)는 카카오 앱키가 나오는 대로 이 컨트롤러에 추가된다.
  */
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -43,6 +49,8 @@ public class AuthController {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final AuthCommandService authCommandService;
+    private final EmailVerificationService emailVerificationService;
+    private final UserRepository userRepository;
 
     /** 회원가입 (AUTH-1). 정책상 가입 즉시 로그인 상태로 진입하므로 토큰까지 함께 준다. */
     @PostMapping("/signup")
@@ -92,6 +100,33 @@ public class AuthController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, expiredRefreshCookie().toString())
                 .body(ApiResponse.success());
+    }
+
+    /**
+     * 이메일 인증 완료 (AUTH-6).
+     *
+     * 인증을 요구하지 않는다 - 메일 링크를 누르는 시점에 그 브라우저가 로그인 상태라는
+     * 보장이 없다(PC에서 가입하고 폰 메일함에서 누르는 경우). 토큰 자체가 본인 확인이다.
+     */
+    @PostMapping("/email/verify")
+    public ResponseEntity<ApiResponse<Void>> verifyEmail(@Valid @RequestBody EmailVerifyRequest request) {
+        emailVerificationService.verify(request.token());
+        return ResponseEntity.ok(ApiResponse.success());
+    }
+
+    /**
+     * 인증 메일 재발송 (AUTH-6).
+     *
+     * 여기는 반대로 인증이 필요하다. 이메일만 받아 재발송해 주면 응답으로 가입 여부를
+     * 확인할 수 있고, 남의 주소로 메일을 대신 쏘는 발송기가 된다. 본인 계정에만 보낸다.
+     */
+    @PostMapping("/email/verification")
+    public ResponseEntity<ApiResponse<Void>> resendVerificationMail(
+            @AuthenticationPrincipal AuthenticatedUser principal) {
+        User user = userRepository.findById(principal.userId())
+                .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
+        emailVerificationService.sendVerificationMail(user);
+        return ResponseEntity.ok(ApiResponse.success());
     }
 
     private ResponseCookie refreshCookie(AuthTokens tokens) {

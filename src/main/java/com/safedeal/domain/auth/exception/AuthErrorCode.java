@@ -32,7 +32,11 @@ public enum AuthErrorCode implements ErrorCode {
     // refresh 쿠키가 아예 없는 경우. INVALID_TOKEN과 나누는 이유는 프런트가 "로그인 화면으로"와
     // "재시도"를 구분해야 하기 때문이다.
     REFRESH_TOKEN_MISSING(HttpStatus.UNAUTHORIZED, "AUTH007", "인증 정보가 없습니다. 다시 로그인해 주세요."),
-    // AUTH008 이후는 이메일 인증·비밀번호 찾기(AUTH-6·7) PR에서 이어서 쓴다.
+    // 만료·이미 사용됨·존재하지 않음을 하나로 묶는다. 구분해 주면 "이 토큰은 있는데 만료됐다"가
+    // 새어 토큰 추측에 힌트가 된다.
+    INVALID_EMAIL_VERIFICATION_TOKEN(HttpStatus.BAD_REQUEST, "AUTH008",
+            "인증 링크가 유효하지 않거나 만료되었습니다."),
+    // AUTH009 이후는 비밀번호 찾기(AUTH-7)에서 이어서 쓴다.
     ;
 
     private final HttpStatus status;

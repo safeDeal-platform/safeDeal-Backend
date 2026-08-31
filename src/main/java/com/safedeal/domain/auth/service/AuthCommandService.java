@@ -32,6 +32,7 @@ public class AuthCommandService {
     private final RefreshTokenStore refreshTokenStore;
     private final TokenBlacklist tokenBlacklist;
     private final LoginAttemptStore loginAttemptStore;
+    private final EmailVerificationService emailVerificationService;
 
     /**
      * 존재하지 않는 계정으로 로그인을 시도했을 때 대조할 더미 해시.
@@ -47,13 +48,15 @@ public class AuthCommandService {
                               JwtTokenProvider tokenProvider,
                               RefreshTokenStore refreshTokenStore,
                               TokenBlacklist tokenBlacklist,
-                              LoginAttemptStore loginAttemptStore) {
+                              LoginAttemptStore loginAttemptStore,
+                              EmailVerificationService emailVerificationService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.tokenProvider = tokenProvider;
         this.refreshTokenStore = refreshTokenStore;
         this.tokenBlacklist = tokenBlacklist;
         this.loginAttemptStore = loginAttemptStore;
+        this.emailVerificationService = emailVerificationService;
         this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
 
@@ -77,8 +80,9 @@ public class AuthCommandService {
                 request.email(), passwordEncoder.encode(request.password()), request.nickname()));
         user.markLoggedIn(Instant.now());
 
-        // 인증 메일 발송(AUTH-6)은 후속 PR에서 여기에 붙는다. 지금은 email_verified=false로만
-        // 만든다 — 정책상 미인증도 로그인·열람은 가능하고 OAuth 자동연결 대상에서만 빠진다.
+        // 가입 자체는 성공시키고 인증만 미룬다 - 정책상 미인증도 로그인·열람은 가능하고
+        // OAuth 자동연결 대상에서만 빠진다. 발송 실패는 예외로 올리지 않는다(MailSender 주석).
+        emailVerificationService.sendVerificationMail(user);
         return issueTokens(user);
     }
 
