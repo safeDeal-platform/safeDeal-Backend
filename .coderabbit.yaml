@@ -1,0 +1,136 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+
+# CodeRabbit 자동 리뷰 설정.
+# 이 파일이 리포지토리 루트에 있으면 PR이 열릴 때마다 리뷰가 자동으로 돈다 — 별도 워크플로가 필요 없다.
+# 단, 설정은 PR의 *base 브랜치* 기준으로 읽힌다. 이 파일을 추가·수정한 PR 자신에게는 아직 적용되지 않고,
+# dev에 머지된 다음 PR부터 반영된다.
+
+language: "ko-KR"
+
+# 최대 250자. 리뷰 문체를 여기서 한 번에 잡는다.
+tone_instructions: >-
+  근거를 코드 라인으로 대고 말하라. 잘한 점 나열과 변경 요약 반복은 빼고 고칠 것만 남겨라.
+  확신이 없으면 단정하지 말고 질문으로 남겨라. 스타일 취향보다 버그·보안·데이터 정합성을 먼저 본다.
+
+reviews:
+  # chill: 확실한 것만 코멘트한다. 3인 팀이라 assertive(사소한 것까지 전부)로 두면
+  # 리뷰 코멘트가 사람 리뷰를 덮어버린다. 놓치는 게 많다고 느껴지면 assertive로 올린다.
+  profile: chill
+
+  # true면 CodeRabbit이 "Request changes"를 걸어 머지를 막는다. 오탐 한 건에 PR이 잠기므로 끈다.
+  request_changes_workflow: false
+
+  high_level_summary: true
+  # 워크스루(파일별 요약)는 접어둔다 — PR 본문 상단은 사람이 쓴 ## 💡 개요가 먼저 보여야 한다.
+  collapse_walkthrough: true
+  poem: false
+
+  auto_review:
+    enabled: true
+    # 초안 PR은 건너뛴다. 작업 중인 브랜치에 리뷰가 붙으면 크레딧만 쓰고 내용도 금방 낡는다.
+    drafts: false
+    # 기본 브랜치(dev) 외의 base도 리뷰한다. 스택 PR(예: feat/auth-login -> chore/jdk-21)은
+    # base가 기능 브랜치라서, 이 항목이 없으면 조용히 리뷰 대상에서 빠진다.
+    base_branches:
+      - ".*"
+    # 커밋을 추가로 푸시하면 늘어난 부분만 다시 본다.
+    auto_incremental_review: true
+
+  # 리뷰 대상에서 제외한다. 빌드 산출물·래퍼는 사람이 손대는 코드가 아니다.
+  path_filters:
+    - "!build/**"
+    - "!bin/**"
+    - "!.gradle/**"
+    - "!gradle/wrapper/**"
+    - "!**/*.jar"
+    - "!docs/**"
+
+  # 경로별 추가 지침. CLAUDE.md의 팀 규칙 중 "리뷰에서 걸러야 하는 것"만 옮겨 적었다.
+  path_instructions:
+    - path: "src/main/java/com/safedeal/**/*.java"
+      instructions: |
+        - 상태 전이는 조건부 UPDATE(WHERE status = 기대값)여야 한다. 조회 후 setter로 바꾸는
+          read-modify-write는 동시 요청에서 전이표를 어긴다 — 지적할 것.
+        - enum 영속화는 반드시 @Enumerated(EnumType.STRING). ORDINAL이면 지적할 것.
+        - 소프트 삭제 대상 엔티티를 조회하는데 삭제 여부 조건이 빠져 있으면 지적할 것.
+        - 컨트롤러에서 현재 사용자는 @AuthenticationPrincipal AuthenticatedUser로만 꺼낸다.
+          SecurityContextHolder에서 직접 캐스팅하거나 컨트롤러가 Repository를 주입받으면 지적할 것.
+        - 에러 코드는 전역 유일하고 한 번 공개하면 바꾸지 않는다. 기존 코드 문자열의 값 변경·재사용을
+          발견하면 지적할 것(새 코드 추가는 정상).
+        - 토큰 문자열, 비밀번호, 이메일 주소, 전화번호를 로그·예외 메시지·응답 본문에 넣으면 지적할 것.
+        - 인증 실패 응답은 계정 존재 여부를 드러내면 안 된다. "없는 계정"과 "비밀번호 틀림"이
+          서로 다른 코드·메시지·분기로 갈리면 지적할 것.
+        - 비동기 이벤트 컨슈머는 event_id 기준 멱등이어야 한다. 재소비 시 중복 반영되면 지적할 것.
+    - path: "src/main/resources/db/migration/**"
+      instructions: |
+        - 이미 적용된 V 파일의 내용 수정은 금지다. 기존 파일이 변경됐으면 새 버전 파일로 나누라고 지적할 것.
+        - 버전 번호는 도메인별 대역을 쓴다: 유저·상품·채팅·신고·검증 V1xx / 인증·결제·신뢰도 V2xx /
+          알림·거래·가격추세 V3xx. 대역을 벗어나거나 다른 도메인 대역을 침범하면 지적할 것.
+        - 문자열 컬럼의 collation은 utf8mb4_0900_ai_ci여야 한다. 가격 등 정책상 범위가 있는 컬럼에
+          CHECK 제약이 빠졌거나, 정책이 요구하는 복합 UNIQUE가 없으면 지적할 것.
+    - path: "src/main/resources/application*.yml"
+      instructions: |
+        - 공유 설정(application.yml)의 비밀값에 기본값을 넣으면 안 된다. ${JWT_SECRET} 같은
+          기본값 없는 형태여야 하고, ${JWT_SECRET:...}처럼 폴백이 붙어 있으면 지적할 것.
+          로컬 전용 기본값은 application-local.yml에만 둔다.
+        - 시크릿(키·비밀번호·토큰) 리터럴이 파일에 직접 적혀 있으면 지적할 것.
+        - 운영 프로필에서 ddl-auto가 create/create-drop/update면 지적할 것.
+    - path: "src/test/java/**/*.java"
+      instructions: |
+        - 항상 참이 되는 단언을 지적할 것. 특히 존재하지 않는 JSON 경로를 읽어 비교하거나
+          (Jackson은 MissingNode를 돌려주고 조용히 통과한다), 실제 값 대신 null·not-null만 보는 경우.
+        - 만료·잘못된 서명·재사용 같은 실패 경로 테스트가 성공 경로만 있고 빠져 있으면 지적할 것.
+        - 고정 sleep으로 타이밍을 맞추는 테스트는 CI에서 깨진다 — 지적할 것.
+    - path: ".github/workflows/**"
+      instructions: |
+        - 서드파티 액션은 커밋 SHA로 고정해야 한다. 태그(@v4)만 있으면 지적할 것.
+        - permissions가 없거나 필요 이상으로 넓으면 지적할 것.
+        - PR 코드를 실행하는 잡에서 persist-credentials: false가 빠져 있으면 지적할 것.
+        - pull_request_target에서 PR head를 체크아웃하면 지적할 것(시크릿 노출 경로).
+    - path: "**/{build.gradle,settings.gradle,Dockerfile,docker-compose.yml}"
+      instructions: |
+        - 의존성·베이스 이미지 버전은 고정한다. latest 태그나 동적 버전(+, 범위)이면 지적할 것.
+        - 이미지 안에서 다시 빌드하지 않는다 — CI가 테스트한 그 JAR을 그대로 넣는 구조를 깨면 지적할 것.
+
+  tools:
+    # Java
+    pmd:
+      enabled: true
+    # 워크플로 문법 + 공급망/권한 취약점
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    # Dockerfile
+    hadolint:
+      enabled: true
+    # 시크릿 유출
+    gitleaks:
+      enabled: true
+    # 셸 스크립트(gradlew, 워크플로 run 블록)
+    shellcheck:
+      enabled: true
+    # 의존성 취약점(CVE)
+    osvScanner:
+      enabled: true
+    semgrep:
+      enabled: true
+    # CI 결과(빌드·테스트 실패)를 리뷰에 함께 반영한다
+    github-checks:
+      enabled: true
+    # 아래는 끈다.
+    # yamllint: Spring 설정 yml에서 줄 길이·들여쓰기로 오탐이 쏟아진다. 필요하면 .yamllint를 두고 켠다.
+    yamllint:
+      enabled: false
+    # languagetool: 한국어 문서 맞춤법 지적이라 리뷰 신호를 흐린다.
+    languagetool:
+      enabled: false
+
+chat:
+  # PR 코멘트로 @coderabbitai에게 질문·재리뷰 요청이 가능하게 둔다.
+  auto_reply: true
+  art: false
+
+knowledge_base:
+  # 리뷰에서 합의된 내용을 학습해 다음 PR에서 같은 지적을 반복하지 않게 한다.
+  opt_out: false
