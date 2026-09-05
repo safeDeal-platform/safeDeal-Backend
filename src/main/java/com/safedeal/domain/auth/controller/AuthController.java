@@ -4,6 +4,7 @@ import com.safedeal.domain.auth.dto.EmailVerifyRequest;
 import com.safedeal.domain.auth.dto.LoginRequest;
 import com.safedeal.domain.auth.dto.PasswordResetConfirmRequest;
 import com.safedeal.domain.auth.dto.PasswordResetRequest;
+import com.safedeal.domain.auth.dto.AuthResponse;
 import com.safedeal.domain.auth.dto.SignupRequest;
 import com.safedeal.domain.auth.dto.TokenResponse;
 import com.safedeal.domain.auth.exception.AuthErrorCode;
@@ -60,22 +61,22 @@ public class AuthController {
      * 바꿔가며 가입 요청을 반복해 공급자 발송 쿼터를 통째로 태울 수 있다.
      */
     @PostMapping("/signup")
-    public ResponseEntity<ApiResponse<TokenResponse>> signup(@Valid @RequestBody SignupRequest request,
+    public ResponseEntity<ApiResponse<AuthResponse>> signup(@Valid @RequestBody SignupRequest request,
                                                              HttpServletRequest servletRequest) {
         AuthTokens tokens = authCommandService.signup(request, clientIp(servletRequest));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .header(HttpHeaders.SET_COOKIE, refreshCookie(tokens).toString())
-                .body(ApiResponse.success(TokenResponse.from(tokens.access())));
+                .body(ApiResponse.success(AuthResponse.from(tokens)));
     }
 
     /** 로그인 (AUTH-2). 브루트포스 잠금이 계정+IP 기준이라 클라이언트 IP가 필요하다(AUTH-8). */
     @PostMapping("/login")
-    public ResponseEntity<ApiResponse<TokenResponse>> login(@Valid @RequestBody LoginRequest request,
+    public ResponseEntity<ApiResponse<AuthResponse>> login(@Valid @RequestBody LoginRequest request,
                                                             HttpServletRequest servletRequest) {
         AuthTokens tokens = authCommandService.login(request, clientIp(servletRequest));
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, refreshCookie(tokens).toString())
-                .body(ApiResponse.success(TokenResponse.from(tokens.access())));
+                .body(ApiResponse.success(AuthResponse.from(tokens)));
     }
 
     /** 토큰 재발급 (AUTH-3). 프런트의 silent refresh가 여기로 온다. */

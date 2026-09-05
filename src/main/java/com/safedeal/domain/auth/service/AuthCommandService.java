@@ -198,6 +198,6 @@ public class AuthCommandService {
         // 그 사용자는 다음 재발급 때 재사용 공격으로 판정돼 전 기기 로그아웃당한다.
         refreshTokenStore.save(user.getId(), refresh.jti(),
                 JwtTokenProvider.hash(refresh.value()), refresh.expiresAt());
-        return new AuthTokens(access, refresh);
+        return new AuthTokens(user, access, refresh);
     }
 }

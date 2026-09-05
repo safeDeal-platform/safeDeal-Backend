@@ -21,6 +21,7 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import static org.hamcrest.Matchers.greaterThan;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -74,6 +75,47 @@ class AuthFlowTest {
         return prefix + (++sequence);
     }
 
+
+    @Test
+    @DisplayName("가입·로그인 응답은 같은 모양이고 프로필·신뢰도까지 함께 준다")
+    void authResponseCarriesProfile() throws Exception {
+        String email = unique("profile") + "@test.com";
+        String nickname = unique("프로필");
+
+        // 가입: 아직 메일 인증 전이고 신뢰도는 시작값(내부 500 -> 표시 50.0)이다.
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody(email, nickname)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.publicId").isNotEmpty())
+                .andExpect(jsonPath("$.data.nickname").value(nickname))
+                .andExpect(jsonPath("$.data.role").value("USER"))
+                .andExpect(jsonPath("$.data.emailVerified").value(false))
+                .andExpect(jsonPath("$.data.trustScore").value(50.0))
+                .andExpect(jsonPath("$.data.expiresIn").value(greaterThan(0)));
+
+        // 로그인도 같은 필드를 준다 - 프론트가 두 경로를 같은 핸들러로 처리할 수 있어야 한다.
+        mockMvc.perform(loginRequest(email, "password123"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nickname").value(nickname))
+                .andExpect(jsonPath("$.data.role").value("USER"))
+                .andExpect(jsonPath("$.data.emailVerified").value(false))
+                .andExpect(jsonPath("$.data.trustScore").value(50.0));
+    }
+
+    @Test
+    @DisplayName("재발급 응답에는 유저 정보가 실리지 않는다")
+    void reissueReturnsTokenOnly() throws Exception {
+        MvcResult signedUp = signup(unique("reissue-shape") + "@test.com", unique("재발급모양"));
+        MockCookie refresh = (MockCookie) signedUp.getResponse().getCookie("refreshToken");
+
+        mockMvc.perform(post("/api/auth/reissue").cookie(refresh))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.data.expiresIn").value(greaterThan(0)))
+                .andExpect(jsonPath("$.data.nickname").doesNotExist())
+                .andExpect(jsonPath("$.data.trustScore").doesNotExist());
+    }
     private String signupBody(String email, String nickname) {
         return """
                 {"email":"%s","password":"password123","nickname":"%s"}
