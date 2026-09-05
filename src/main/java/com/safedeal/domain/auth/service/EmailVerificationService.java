@@ -7,6 +7,7 @@ import com.safedeal.domain.auth.repository.MailSendRateLimiter;
 import com.safedeal.domain.user.entity.User;
 import com.safedeal.domain.user.repository.UserRepository;
 import com.safedeal.global.exception.BusinessException;
+import com.safedeal.global.mail.MailDispatch;
 import com.safedeal.global.mail.MailProperties;
 import com.safedeal.global.mail.MailSender;
 import com.safedeal.global.security.JwtTokenProvider;
@@ -57,7 +58,9 @@ public class EmailVerificationService {
                 user.getId(), JwtTokenProvider.hash(rawToken), Instant.now().plus(TTL)));
 
         String link = mailProperties.getBaseUrl() + "/auth/email/verify?token=" + rawToken;
-        mailSender.send(user.getEmail(), SUBJECT,
+        // 커밋 후에 보낸다 — 가입이 롤백되면 이 토큰 행도 사라지는데 메일만 나가면
+        // 사용자는 열리지 않는 링크를 받는다(MailDispatch 주석).
+        MailDispatch.afterCommit(mailSender, user.getEmail(), SUBJECT,
                 "아래 링크를 눌러 이메일 인증을 완료해 주세요. 링크는 24시간 동안 유효합니다.\n" + link);
     }
 
@@ -74,7 +77,7 @@ public class EmailVerificationService {
         if (!mailSendRateLimiter.allowVerificationResend(userId)) {
             throw new BusinessException(AuthErrorCode.TOO_MANY_MAIL_REQUESTS);
         }
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdAndDeletedAtIsNull(userId)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
         sendVerificationMail(user);
     }
@@ -92,10 +95,14 @@ public class EmailVerificationService {
                 .filter(candidate -> candidate.isUsable(now))
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_EMAIL_VERIFICATION_TOKEN));
 
-        User user = userRepository.findById(token.getUserId())
+        User user = userRepository.findByIdAndDeletedAtIsNull(token.getUserId())
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_EMAIL_VERIFICATION_TOKEN));
 
-        token.markUsed(now);
+        // 위의 isUsable은 사전 검사일 뿐이고, 1회용 판정은 조건부 UPDATE가 한다.
+        // 같은 링크를 동시에 두 번 눌러도 영향 행이 1인 요청만 통과한다.
+        if (tokenRepository.markUsed(token.getId(), now) != 1) {
+            throw new BusinessException(AuthErrorCode.INVALID_EMAIL_VERIFICATION_TOKEN);
+        }
         user.verifyEmail();
     }
 }

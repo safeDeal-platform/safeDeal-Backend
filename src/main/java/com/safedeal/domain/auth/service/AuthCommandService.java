@@ -4,6 +4,7 @@ import com.safedeal.domain.auth.dto.LoginRequest;
 import com.safedeal.domain.auth.dto.SignupRequest;
 import com.safedeal.domain.auth.exception.AuthErrorCode;
 import com.safedeal.domain.auth.repository.LoginAttemptStore;
+import com.safedeal.domain.auth.repository.MailSendRateLimiter;
 import com.safedeal.domain.auth.repository.RefreshTokenStore;
 import com.safedeal.domain.user.entity.User;
 import com.safedeal.domain.user.repository.UserRepository;
@@ -32,6 +33,7 @@ public class AuthCommandService {
     private final RefreshTokenStore refreshTokenStore;
     private final TokenBlacklist tokenBlacklist;
     private final LoginAttemptStore loginAttemptStore;
+    private final MailSendRateLimiter mailSendRateLimiter;
     private final EmailVerificationService emailVerificationService;
 
     /**
@@ -49,6 +51,7 @@ public class AuthCommandService {
                               RefreshTokenStore refreshTokenStore,
                               TokenBlacklist tokenBlacklist,
                               LoginAttemptStore loginAttemptStore,
+                              MailSendRateLimiter mailSendRateLimiter,
                               EmailVerificationService emailVerificationService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -56,6 +59,7 @@ public class AuthCommandService {
         this.refreshTokenStore = refreshTokenStore;
         this.tokenBlacklist = tokenBlacklist;
         this.loginAttemptStore = loginAttemptStore;
+        this.mailSendRateLimiter = mailSendRateLimiter;
         this.emailVerificationService = emailVerificationService;
         this.dummyPasswordHash = passwordEncoder.encode(UUID.randomUUID().toString());
     }
@@ -68,7 +72,12 @@ public class AuthCommandService {
      * INSERT에서 터진다.
      */
     @Transactional
-    public AuthTokens signup(SignupRequest request) {
+    public AuthTokens signup(SignupRequest request, String clientIp) {
+        // 계정을 만들기 전에 센다. 가입 한 번이 인증 메일 한 통이라, 이 경로만 열려 있으면
+        // 주소를 바꿔가며 반복 호출해 공급자 쿼터를 태우고 다른 사용자의 메일까지 멈춘다.
+        if (!mailSendRateLimiter.allowSignup(clientIp)) {
+            throw new BusinessException(AuthErrorCode.TOO_MANY_MAIL_REQUESTS);
+        }
         if (userRepository.existsByEmail(request.email())) {
             throw new BusinessException(AuthErrorCode.DUPLICATE_EMAIL);
         }
@@ -153,8 +162,12 @@ public class AuthCommandService {
                 .filter(User::isLoginAllowed)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_TOKEN));
 
-        // RTR: 직전 토큰을 먼저 폐기하고 새로 발급한다.
-        refreshTokenStore.revoke(claims.userId(), claims.jti());
+        // RTR: 직전 토큰을 원자적으로 소진하고, 실제로 지운 요청만 새 토큰을 받는다.
+        // find로 확인하고 revoke로 지우면 같은 refresh가 동시에 두 번 들어왔을 때 둘 다
+        // 통과해 토큰 하나에서 유효한 세션이 둘 생긴다 — HDEL의 반환값이 심판이다.
+        if (!refreshTokenStore.consume(claims.userId(), claims.jti())) {
+            throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
+        }
         return issueTokens(user);
     }
 

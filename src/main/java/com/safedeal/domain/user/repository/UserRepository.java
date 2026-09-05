@@ -17,6 +17,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmailAndDeletedAtIsNull(String email);
 
     /**
+     * id 조회에도 같은 규칙을 적용한다(공통 정책 '소프트삭제는 명시적 where').
+     *
+     * findById를 그대로 쓰면 탈퇴 직전에 발급된 재설정 링크나 access 토큰(최대 30분 생존)으로
+     * 탈퇴한 계정의 비밀번호를 바꾸거나 메일을 다시 받을 수 있다.
+     */
+    Optional<User> findByIdAndDeletedAtIsNull(Long id);
+
+    /**
      * 삭제된 행까지 포함해서 확인한다 - 동일 이메일 재가입 1차 불허가 정책이고,
      * DB의 email UNIQUE도 삭제 행을 포함하므로 사전 검사도 같은 범위여야 한다.
      * (범위가 다르면 사전 검사는 통과하고 INSERT에서 터진다.)

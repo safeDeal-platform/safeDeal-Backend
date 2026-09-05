@@ -53,10 +53,16 @@ public class AuthController {
     private final EmailVerificationService emailVerificationService;
     private final PasswordResetService passwordResetService;
 
-    /** 회원가입 (AUTH-1). 정책상 가입 즉시 로그인 상태로 진입하므로 토큰까지 함께 준다. */
+    /**
+     * 회원가입 (AUTH-1). 정책상 가입 즉시 로그인 상태로 진입하므로 토큰까지 함께 준다.
+     *
+     * 클라이언트 IP가 필요한 이유: 가입 한 번이 인증 메일 한 통이라, 제한이 없으면 주소를
+     * 바꿔가며 가입 요청을 반복해 공급자 발송 쿼터를 통째로 태울 수 있다.
+     */
     @PostMapping("/signup")
-    public ResponseEntity<ApiResponse<TokenResponse>> signup(@Valid @RequestBody SignupRequest request) {
-        AuthTokens tokens = authCommandService.signup(request);
+    public ResponseEntity<ApiResponse<TokenResponse>> signup(@Valid @RequestBody SignupRequest request,
+                                                             HttpServletRequest servletRequest) {
+        AuthTokens tokens = authCommandService.signup(request, clientIp(servletRequest));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .header(HttpHeaders.SET_COOKIE, refreshCookie(tokens).toString())
                 .body(ApiResponse.success(TokenResponse.from(tokens.access())));

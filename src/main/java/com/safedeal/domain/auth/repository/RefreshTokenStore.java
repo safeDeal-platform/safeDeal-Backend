@@ -33,9 +33,11 @@ import java.util.Optional;
  * 통과"하는 구조라 조회를 못 했을 때 통과시킬 방법이 원리적으로 없고, 저장에 실패했는데 로그인을
  * 성공시키면 화이트리스트에 없는 refresh가 발급돼 다음 재발급 때 재사용 공격으로 오판된다.
  *
- * 삭제는 두 갈래다. {@link #revoke}(로그아웃·RTR 회전)는 예외를 삼킨다 — 로그아웃은 쓰기가
- * 실패해도 진행돼야 하고, 쿠키를 지우면 그 브라우저에서는 실제로 못 쓴다. {@link #revokeAll}
- * (공격 대응)은 삼키지 않는다 — 지울 쿠키가 공격자 브라우저에 있어 그런 대체 수단이 없다.
+ * 삭제는 세 갈래다. {@link #revoke}(로그아웃·정리)만 예외를 삼킨다 — 로그아웃은 쓰기가
+ * 실패해도 진행돼야 하고, 쿠키를 지우면 그 브라우저에서는 실제로 못 쓴다.
+ * {@link #consume}(RTR 회전)과 {@link #revokeAll}(공격 대응)은 삼키지 않는다 — 전자는
+ * 소진 여부가 곧 발급 여부를 정하는 판정이고, 후자는 지울 쿠키가 공격자 브라우저에 있어
+ * 로그아웃 같은 대체 수단이 없다.
  */
 @Slf4j
 @Repository
@@ -83,7 +85,21 @@ public class RefreshTokenStore {
         }
     }
 
-    /** 재발급(RTR) 시 직전 토큰을 즉시 폐기하거나, 만료된 필드를 정리할 때 쓴다. */
+    /**
+     * 이 jti를 화이트리스트에서 <b>원자적으로 걷어내고, 실제로 지운 쪽만 true</b>를 받는다.
+     *
+     * 재발급(RTR)의 심판이다. find로 확인한 뒤 revoke로 지우면 그 사이에 같은 refresh가 한 번
+     * 더 들어왔을 때 둘 다 검사를 통과해, 토큰 하나에서 유효한 세션이 둘 나온다. HDEL은 지운
+     * 필드 수를 돌려주므로 경쟁에서 이긴 요청이 하나로 확정된다.
+     *
+     * 실패는 삼키지 않는다(fail-closed) — 소진됐는지 모르는 채로 새 토큰을 발급할 수 없다.
+     */
+    public boolean consume(Long userId, String jti) {
+        Long removed = redisTemplate.opsForHash().delete(key(userId), jti);
+        return removed != null && removed == 1L;
+    }
+
+    /** 만료·해시 불일치로 걸러낸 필드를 정리하거나, 로그아웃에서 쓴다(실패해도 진행). */
     public void revoke(Long userId, String jti) {
         try {
             redisTemplate.opsForHash().delete(key(userId), jti);

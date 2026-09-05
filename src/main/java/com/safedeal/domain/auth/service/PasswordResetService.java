@@ -8,6 +8,7 @@ import com.safedeal.domain.auth.repository.RefreshTokenStore;
 import com.safedeal.domain.user.entity.User;
 import com.safedeal.domain.user.repository.UserRepository;
 import com.safedeal.global.exception.BusinessException;
+import com.safedeal.global.mail.MailDispatch;
 import com.safedeal.global.mail.MailProperties;
 import com.safedeal.global.mail.MailSender;
 import com.safedeal.global.security.JwtTokenProvider;
@@ -66,7 +67,7 @@ public class PasswordResetService {
         User user = found.get();
 
         if (!user.hasPassword()) {
-            mailSender.send(user.getEmail(), SUBJECT,
+            MailDispatch.afterCommit(mailSender, user.getEmail(), SUBJECT,
                     "이 계정은 소셜 로그인(구글/카카오)으로 만들어져 재설정할 비밀번호가 없습니다.\n"
                             + "가입에 사용한 소셜 계정으로 로그인해 주세요.");
             return;
@@ -77,7 +78,8 @@ public class PasswordResetService {
                 user.getId(), JwtTokenProvider.hash(rawToken), Instant.now().plus(TTL)));
 
         String link = mailProperties.getBaseUrl() + "/auth/password/reset?token=" + rawToken;
-        mailSender.send(user.getEmail(), SUBJECT,
+        // 커밋 후 발송 — 토큰 행이 롤백되면 열리지 않는 링크를 보내는 셈이 된다.
+        MailDispatch.afterCommit(mailSender, user.getEmail(), SUBJECT,
                 "아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 30분 동안 유효합니다.\n" + link);
     }
 
@@ -94,11 +96,15 @@ public class PasswordResetService {
                 .filter(candidate -> candidate.isUsable(now))
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN));
 
-        User user = userRepository.findById(token.getUserId())
+        User user = userRepository.findByIdAndDeletedAtIsNull(token.getUserId())
                 .filter(User::hasPassword)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN));
 
-        token.markUsed(now);
+        // 1회용 판정은 조건부 UPDATE가 한다. 링크를 동시에 두 번 제출하면 서로 다른 비밀번호가
+        // 둘 다 적용되고 마지막 쓰기가 이긴다 — 영향 행이 1인 요청만 통과시킨다.
+        if (tokenRepository.markUsed(token.getId(), now) != 1) {
+            throw new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN);
+        }
         user.changePassword(passwordEncoder.encode(newPassword));
         refreshTokenStore.revokeAll(user.getId());
     }

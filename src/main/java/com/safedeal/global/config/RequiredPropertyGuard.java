@@ -42,7 +42,10 @@ public class RequiredPropertyGuard {
             "app.kafka.consumer-group.chat-fanout",
             // 빠뜨리면 토큰 서명 키가 없어 인증이 통째로 깨진다. 게다가 공용 설정에 기본값을
             // 두지 않았으므로(의도) 여기서 못 잡으면 첫 로그인 요청에서야 드러난다.
-            "app.jwt.secret"
+            "app.jwt.secret",
+            // 빠뜨리면 LoggingMailSender가 붙어 앱은 멀쩡히 뜨는데 인증·재설정 메일이 실제로
+            // 나가지 않고 수신자 주소와 링크가 운영 로그에 그대로 쌓인다. 아무도 에러를 못 본다.
+            "app.mail.provider"
     );
 
     private final Environment environment;

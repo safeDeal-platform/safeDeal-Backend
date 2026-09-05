@@ -48,6 +48,16 @@ public class MailSendRateLimiter {
     private final StringRedisTemplate redisTemplate;
     private final RedisScript<Long> rateLimitScript;
 
+    /**
+     * 회원가입 (AUTH-1). 가입 한 번이 곧 인증 메일 한 통이라 이 경로도 세야 한다.
+     *
+     * 주소 기준은 의미가 없다 — 공격자는 매번 다른 주소를 쓰면 그만이고, 같은 주소의 반복은
+     * 어차피 email UNIQUE가 막는다. 남는 축은 IP뿐이다.
+     */
+    public boolean allowSignup(String ip) {
+        return allow("signup:ip:" + ip, PER_IP_LIMIT);
+    }
+
     /** 재설정 요청 (AUTH-7). 계정 존재 여부를 보기 <b>전에</b> 호출해야 응답이 갈라지지 않는다. */
     public boolean allowPasswordResetRequest(String emailHash, String ip) {
         return allow("reset:addr:" + emailHash, PER_ADDRESS_LIMIT)
