@@ -32,7 +32,10 @@ import java.util.Optional;
  * <b>실패 처리</b>: 저장·조회는 fail-closed다(예외를 그대로 올린다). 화이트리스트는 "있어야
  * 통과"하는 구조라 조회를 못 했을 때 통과시킬 방법이 원리적으로 없고, 저장에 실패했는데 로그인을
  * 성공시키면 화이트리스트에 없는 refresh가 발급돼 다음 재발급 때 재사용 공격으로 오판된다.
- * 삭제만 예외를 삼킨다 — 로그아웃은 쓰기가 실패해도 진행돼야 하기 때문이다.
+ *
+ * 삭제는 두 갈래다. {@link #revoke}(로그아웃·RTR 회전)는 예외를 삼킨다 — 로그아웃은 쓰기가
+ * 실패해도 진행돼야 하고, 쿠키를 지우면 그 브라우저에서는 실제로 못 쓴다. {@link #revokeAll}
+ * (공격 대응)은 삼키지 않는다 — 지울 쿠키가 공격자 브라우저에 있어 그런 대체 수단이 없다.
  */
 @Slf4j
 @Repository
@@ -90,15 +93,18 @@ public class RefreshTokenStore {
     }
 
     /**
-     * 해당 유저의 모든 기기를 무효화한다.
-     * 재사용 공격 감지(정책)와 비밀번호 재설정(AUTH-7) 두 곳에서 쓴다.
+     * 해당 유저의 모든 기기를 무효화한다 — <b>실패하면 예외를 올린다(fail-closed)</b>.
+     *
+     * 재사용 공격 감지(정책)와 비밀번호 재설정(AUTH-7) 두 곳에서 쓴다. 둘 다 "남이 이미 내
+     * 계정에 들어와 있다"를 전제로 한 공격 대응이라, 무효화가 실패했는데 호출자에게 성공으로
+     * 보이면 안 된다. 삼키면 사용자는 세션이 끊긴 줄 아는데 공격자 토큰은 그대로 살아 있고,
+     * 그 사실이 경고 로그에만 남는다.
+     *
+     * 가용성 비용은 사실상 없다 — Redis가 죽으면 화이트리스트 저장도 fail-closed라 어차피
+     * 로그인·재발급이 안 된다. 여기서만 통과시켜 봐야 얻는 게 없다.
      */
     public void revokeAll(Long userId) {
-        try {
-            redisTemplate.delete(key(userId));
-        } catch (RuntimeException e) {
-            log.warn("refresh 전체 무효화 실패 - reason={}", e.getClass().getSimpleName());
-        }
+        redisTemplate.delete(key(userId));
     }
 
     private String key(Long userId) {

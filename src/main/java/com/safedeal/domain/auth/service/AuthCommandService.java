@@ -136,6 +136,8 @@ public class AuthCommandService {
         var entry = refreshTokenStore.find(claims.userId(), claims.jti()).orElse(null);
         if (entry == null) {
             log.warn("refresh 재사용 감지 - 해당 유저의 모든 세션을 무효화한다. userId={}", claims.userId());
+            // 무효화가 실패하면 여기서 그대로 터진다(500). 401로 바꿔 내리면 "차단했다"는 응답이
+            // 나가지만 공격자의 나머지 기기 토큰은 살아 있다 — 실패를 실패로 보여야 한다.
             refreshTokenStore.revokeAll(claims.userId());
             throw new BusinessException(AuthErrorCode.INVALID_TOKEN);
         }
