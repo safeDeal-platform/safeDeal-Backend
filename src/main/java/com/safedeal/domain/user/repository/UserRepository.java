@@ -1,7 +1,11 @@
 package com.safedeal.domain.user.repository;
 
 import com.safedeal.domain.user.entity.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
@@ -30,6 +34,20 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * (범위가 다르면 사전 검사는 통과하고 INSERT에서 터진다.)
      */
     boolean existsByEmail(String email);
+
+    /**
+     * 신뢰도 점수 갱신용 — 행을 잠그고 읽는다 (정책 TRS-2, 이벤트 수신 즉시 반영).
+     *
+     * 점수 반영은 read-modify-write다. 같은 유저에게 거래완료와 제재 확정이 동시에 도착하면
+     * 둘 다 같은 값을 읽고 각자 더해 마지막 쓰기가 이긴다 — 한쪽 변동이 통째로 사라진다.
+     * 상태 전이가 아니라 누적 계산이라 조건부 UPDATE로는 못 막고(기대값을 알 수 없다),
+     * 파티션 키를 userId로 맞추는 방법은 발행 측(신고·거래) 구현에 기대야 해서 수신 측이
+     * 스스로 보장할 수 없다. 그래서 행 잠금으로 직렬화한다 — 점수 변동은 드문 이벤트라
+     * 잠금 경합 비용이 거의 없다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.id = :id and u.deletedAt is null")
+    Optional<User> findForTrustScoreUpdate(@Param("id") Long id);
 
     /**
      * 닉네임도 UNIQUE 제약과 같은 범위로 확인한다.

@@ -1,5 +1,6 @@
 package com.safedeal.domain.user.entity;
 
+import com.safedeal.domain.trust.TrustScore;
 import com.safedeal.global.entity.MutableEntity;
 import com.safedeal.global.util.PublicId;
 import jakarta.persistence.Column;
@@ -36,7 +37,7 @@ public class User extends MutableEntity {
 
     // 내부 1000점 척도의 시작값(표시 50.0). 척도·delta의 소유는 신뢰도 도메인이고
     // 여기서는 "가입 시 어떤 값으로 만들지"만 정한다 (정책 TRS-1).
-    public static final int INITIAL_TRUST_SCORE = 500;
+    public static final int INITIAL_TRUST_SCORE = TrustScore.INITIAL;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -135,6 +136,22 @@ public class User extends MutableEntity {
     }
 
     /** OAuth 전용 계정은 대조할 비밀번호가 없다. */
+    /**
+     * 신뢰도 점수를 갈아끼운다 (정책 TRS-1·TRS-3).
+     *
+     * 증감폭 계산·하한 적용·어뷰징 판정은 전부 신뢰도 도메인이 하고 엔티티는 결과만 받는다 —
+     * 여기서 계산하면 점수 규칙이 유저 엔티티로 새어 나가고, 규칙이 바뀔 때마다 남의 도메인
+     * 파일을 고쳐야 한다.
+     *
+     * @param floorReleased 조건부 하한 보호가 풀린 상태인지(reported_flag). "이력이 있느냐"가
+     *                      아니라 "지금 보호가 풀려 있느냐"다 — 정책에 복원 규칙이 있어
+     *                      true에서 false로 돌아올 수 있다.
+     */
+    public void applyTrustScore(int newScore, boolean floorReleased) {
+        this.trustScore = newScore;
+        this.reportedFlag = floorReleased;
+    }
+
     public boolean hasPassword() {
         return passwordHash != null;
     }
