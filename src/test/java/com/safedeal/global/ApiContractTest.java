@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.util.AssertionErrors;
 
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.not;
@@ -81,15 +80,12 @@ class ApiContractTest extends IntegrationTestSupport {
     @Test
     @DisplayName("카테고리는 조회만 열려 있다 — 인증 없는 쓰기는 통과하지 않는다")
     void categories_writeIsNotWhitelisted() throws Exception {
+        // permitAll이 GET으로 한정돼 있어 시큐리티가 매핑보다 먼저 걸러 401이 나간다.
+        // 405를 함께 허용하면 permitAll에서 GET 한정이 빠져도(=쓰기가 열려도) 매핑이 없어
+        // 405가 나므로 테스트가 통과해 버린다. 그래서 401만 단언한다.
         mockMvc.perform(post("/api/categories")
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(result -> {
-                    int status = result.getResponse().getStatus();
-                    // POST 매핑이 없으면 405, 시큐리티가 먼저 걸리면 401. 어느 쪽이든
-                    // "인증 없이 쓰기가 통과하지는 않는다"가 고정된다.
-                    AssertionErrors.assertTrue(
-                            "인증 없는 쓰기가 통과했다: " + status, status == 401 || status == 405);
-                });
+                .andExpect(status().isUnauthorized());
     }
 
     // ── requestId ─────────────────────────────────────────────
