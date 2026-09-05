@@ -81,7 +81,7 @@ class AuthFlowTest {
     }
 
     private MockHttpServletRequestBuilder loginRequest(String email, String password) {
-        return post("/api/v1/auth/login")
+        return post("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"email":"%s","password":"%s"}
@@ -89,7 +89,7 @@ class AuthFlowTest {
     }
 
     private MvcResult signup(String email, String nickname) throws Exception {
-        return mockMvc.perform(post("/api/v1/auth/signup")
+        return mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(signupBody(email, nickname)))
                 .andExpect(status().isCreated())
@@ -112,7 +112,7 @@ class AuthFlowTest {
         assertThat(refresh).isNotNull();
         assertThat(refresh.isHttpOnly()).isTrue();
         assertThat(refresh.getSecure()).isTrue();
-        assertThat(refresh.getPath()).isEqualTo("/api/v1/auth");
+        assertThat(refresh.getPath()).isEqualTo("/api/auth");
         // refresh가 바디에도 실리면 httpOnly를 둔 이유가 통째로 사라진다.
         assertThat(result.getResponse().getContentAsString()).doesNotContain(refresh.getValue());
     }
@@ -137,7 +137,7 @@ class AuthFlowTest {
         String email = unique("login") + "@test.com";
         signup(email, unique("로그인"));
 
-        MvcResult result = mockMvc.perform(post("/api/v1/auth/login")
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"email":"%s","password":"password123"}
@@ -156,13 +156,13 @@ class AuthFlowTest {
         String nickname = unique("중복");
         signup(email, nickname);
 
-        mockMvc.perform(post("/api/v1/auth/signup")
+        mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(signupBody(email, unique("다른닉"))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("AUTH001"));
 
-        mockMvc.perform(post("/api/v1/auth/signup")
+        mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(signupBody(unique("other") + "@test.com", nickname)))
                 .andExpect(status().isConflict())
@@ -175,7 +175,7 @@ class AuthFlowTest {
         String email = unique("enum") + "@test.com";
         signup(email, unique("열거"));
 
-        String wrongPassword = mockMvc.perform(post("/api/v1/auth/login")
+        String wrongPassword = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"email":"%s","password":"totally-wrong-password"}
@@ -183,7 +183,7 @@ class AuthFlowTest {
                 .andExpect(status().isUnauthorized())
                 .andReturn().getResponse().getContentAsString();
 
-        String unknownAccount = mockMvc.perform(post("/api/v1/auth/login")
+        String unknownAccount = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"email":"no-such-account@test.com","password":"totally-wrong-password"}
@@ -205,7 +205,7 @@ class AuthFlowTest {
         MockCookie first = (MockCookie) signedUp.getResponse().getCookie("refreshToken");
         assertThat(first).isNotNull();
 
-        MvcResult reissued = mockMvc.perform(post("/api/v1/auth/reissue").cookie(first))
+        MvcResult reissued = mockMvc.perform(post("/api/auth/reissue").cookie(first))
                 .andExpect(status().isOk())
                 .andReturn();
         MockCookie second = (MockCookie) reissued.getResponse().getCookie("refreshToken");
@@ -213,19 +213,19 @@ class AuthFlowTest {
         assertThat(second.getValue()).isNotEqualTo(first.getValue());
 
         // 직전 토큰은 RTR로 폐기됐다 → 화이트리스트에 없으므로 재사용 공격으로 판정된다.
-        mockMvc.perform(post("/api/v1/auth/reissue").cookie(first))
+        mockMvc.perform(post("/api/auth/reissue").cookie(first))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("AUTH004"));
 
         // 재사용이 감지되면 그 유저의 모든 세션이 끊긴다 → 방금 받은 새 토큰도 못 쓴다.
-        mockMvc.perform(post("/api/v1/auth/reissue").cookie(second))
+        mockMvc.perform(post("/api/auth/reissue").cookie(second))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
     @DisplayName("refresh 쿠키 없이 재발급하면 AUTH007")
     void reissueWithoutCookie() throws Exception {
-        mockMvc.perform(post("/api/v1/auth/reissue"))
+        mockMvc.perform(post("/api/auth/reissue"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("AUTH007"));
     }
@@ -237,7 +237,7 @@ class AuthFlowTest {
         String token = accessTokenOf(signedUp);
         MockCookie refresh = (MockCookie) signedUp.getResponse().getCookie("refreshToken");
 
-        MvcResult loggedOut = mockMvc.perform(post("/api/v1/auth/logout")
+        MvcResult loggedOut = mockMvc.perform(post("/api/auth/logout")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .cookie(refresh))
                 .andExpect(status().isOk())
@@ -252,14 +252,14 @@ class AuthFlowTest {
                 .andExpect(status().isUnauthorized());
 
         // 폐기된 refresh로는 재발급도 안 된다.
-        mockMvc.perform(post("/api/v1/auth/reissue").cookie(refresh))
+        mockMvc.perform(post("/api/auth/reissue").cookie(refresh))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
     @DisplayName("로그아웃은 토큰이 하나도 없어도 200 (만료 후에도 쿠키는 지워져야 한다)")
     void logoutWithoutTokensStillSucceeds() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/auth/logout"))
+        MvcResult result = mockMvc.perform(post("/api/auth/logout"))
                 .andExpect(status().isOk())
                 .andReturn();
         MockCookie cleared = (MockCookie) result.getResponse().getCookie("refreshToken");

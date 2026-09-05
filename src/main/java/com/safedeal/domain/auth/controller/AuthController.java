@@ -36,17 +36,17 @@ import java.time.Instant;
  *
  * <b>토큰 전달 규칙</b>(정책 '쿠키 전달'): access는 응답 바디로 주고 프런트가 메모리에만
  * 보관한다(localStorage 금지). refresh는 httpOnly + Secure + SameSite=Lax 쿠키로만 나가며,
- * 경로를 /api/v1/auth로 좁혀 일반 데이터 요청에는 아예 실리지 않게 한다.
+ * 경로를 /api/auth로 좁혀 일반 데이터 요청에는 아예 실리지 않게 한다.
  *
  * OAuth(AUTH-5)는 카카오 앱키가 나오는 대로 이 컨트롤러에 추가된다.
  */
 @RestController
-@RequestMapping("/api/v1/auth")
+@RequestMapping("/api/auth")
 @RequiredArgsConstructor
 public class AuthController {
 
     private static final String REFRESH_COOKIE = "refreshToken";
-    private static final String COOKIE_PATH = "/api/v1/auth";
+    private static final String COOKIE_PATH = "/api/auth";
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final AuthCommandService authCommandService;
@@ -127,7 +127,7 @@ public class AuthController {
      * 여기는 반대로 인증이 필요하다. 이메일만 받아 재발송해 주면 응답으로 가입 여부를
      * 확인할 수 있고, 남의 주소로 메일을 대신 쏘는 발송기가 된다. 본인 계정에만 보낸다.
      */
-    @PostMapping("/email/verification")
+    @PostMapping("/email/verify/resend")
     public ResponseEntity<ApiResponse<Void>> resendVerificationMail(
             @AuthenticationPrincipal AuthenticatedUser principal) {
         emailVerificationService.resendTo(principal.userId());

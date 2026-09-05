@@ -115,7 +115,7 @@ class AuthAccountRecoveryTest {
     }
 
     private MvcResult signup(String email, String nickname) throws Exception {
-        return mockMvc.perform(post("/api/v1/auth/signup")
+        return mockMvc.perform(post("/api/auth/signup")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"email":"%s","password":"password123","nickname":"%s"}
@@ -130,7 +130,7 @@ class AuthAccountRecoveryTest {
     }
 
     private ResultActions verify(String token) throws Exception {
-        return mockMvc.perform(post("/api/v1/auth/email/verify")
+        return mockMvc.perform(post("/api/auth/email/verify")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"token":"%s"}
@@ -138,7 +138,7 @@ class AuthAccountRecoveryTest {
     }
 
     private ResultActions resetRequest(String email) throws Exception {
-        return mockMvc.perform(post("/api/v1/auth/password/reset-request")
+        return mockMvc.perform(post("/api/auth/password/reset-request")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"email":"%s"}
@@ -146,7 +146,7 @@ class AuthAccountRecoveryTest {
     }
 
     private ResultActions reset(String token, String newPassword) throws Exception {
-        return mockMvc.perform(post("/api/v1/auth/password/reset")
+        return mockMvc.perform(post("/api/auth/password/reset")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"token":"%s","newPassword":"%s"}
@@ -154,7 +154,7 @@ class AuthAccountRecoveryTest {
     }
 
     private ResultActions login(String email, String password) throws Exception {
-        return mockMvc.perform(post("/api/v1/auth/login")
+        return mockMvc.perform(post("/api/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("""
                         {"email":"%s","password":"%s"}
@@ -207,21 +207,21 @@ class AuthAccountRecoveryTest {
     @DisplayName("재발송은 로그인해야 쓸 수 있고, 이미 인증된 계정에는 새 링크를 만들지 않는다")
     void resendRequiresLoginAndSkipsVerifiedAccounts() throws Exception {
         // 비로그인 호출은 막는다 - 열어두면 남의 주소로 메일을 대신 쏘는 발송기가 된다.
-        mockMvc.perform(post("/api/v1/auth/email/verification"))
+        mockMvc.perform(post("/api/auth/email/verify/resend"))
                 .andExpect(status().isUnauthorized());
 
         String email = unique("resend") + "@test.com";
         MvcResult signedUp = signup(email, unique("재발송"));
         String access = accessTokenOf(signedUp);
 
-        mockMvc.perform(post("/api/v1/auth/email/verification")
+        mockMvc.perform(post("/api/auth/email/verify/resend")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + access))
                 .andExpect(status().isOk());
         assertThat(mailSender.sentTo(email)).hasSize(2);
 
         // 인증을 끝낸 뒤에는 링크를 더 만들지 않는다. 계속 발급하면 살아 있는 링크만 늘어난다.
         verify(mailSender.tokenFromLastMailTo(email)).andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/auth/email/verification")
+        mockMvc.perform(post("/api/auth/email/verify/resend")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + access))
                 .andExpect(status().isOk());
         assertThat(mailSender.sentTo(email)).hasSize(2);
@@ -258,7 +258,7 @@ class AuthAccountRecoveryTest {
         reset(mailSender.tokenFromLastMailTo(email), "new-password-1234").andExpect(status().isOk());
 
         // 계정을 빼앗긴 상황이 대부분이라, 비밀번호만 바꾸고 공격자 세션이 살아 있으면 의미가 없다.
-        mockMvc.perform(post("/api/v1/auth/reissue").cookie(refresh))
+        mockMvc.perform(post("/api/auth/reissue").cookie(refresh))
                 .andExpect(status().isUnauthorized());
     }
 
@@ -404,11 +404,11 @@ class AuthAccountRecoveryTest {
         mailSender.clear();
 
         for (int attempt = 1; attempt <= 3; attempt++) {
-            mockMvc.perform(post("/api/v1/auth/email/verification")
+            mockMvc.perform(post("/api/auth/email/verify/resend")
                             .header(HttpHeaders.AUTHORIZATION, "Bearer " + access))
                     .andExpect(status().isOk());
         }
-        mockMvc.perform(post("/api/v1/auth/email/verification")
+        mockMvc.perform(post("/api/auth/email/verify/resend")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + access))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.error.code").value("AUTH010"));

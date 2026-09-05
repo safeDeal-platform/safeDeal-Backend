@@ -44,15 +44,17 @@ public class SecurityConfig {
     // 토큰이 아직 없거나(가입·로그인) 이미 만료된 상태에서도 호출돼야 하는 인증 API.
     // logout이 여기 있는 이유: access가 만료된 뒤에도 로그아웃은 돼야 한다(쿠키 삭제가 목적).
     // email/verify가 공개인 이유: 메일 링크를 누르는 브라우저가 로그인 상태라는 보장이 없다.
-    // 반대로 재발송(email/verification)은 공개하지 않는다 - 열거 통로이자 메일 발송기가 된다.
+    // 반대로 재발송(email/verify/resend)은 공개하지 않는다 - 열거 통로이자 메일 발송기가 된다.
+    // 주의: 재발송은 공개 경로 email/verify의 하위 경로다. 지금은 정확 매칭이라 안 걸리지만,
+    // 누가 여기를 "/api/auth/email/verify/**" 로 넓히면 재발송이 조용히 공개된다 - 넓히지 말 것.
     private static final String[] AUTH_PUBLIC_POST_ENDPOINTS = {
-            "/api/v1/auth/signup",
-            "/api/v1/auth/login",
-            "/api/v1/auth/reissue",
-            "/api/v1/auth/logout",
-            "/api/v1/auth/email/verify",
-            "/api/v1/auth/password/reset-request",
-            "/api/v1/auth/password/reset",
+            "/api/auth/signup",
+            "/api/auth/login",
+            "/api/auth/reissue",
+            "/api/auth/logout",
+            "/api/auth/email/verify",
+            "/api/auth/password/reset-request",
+            "/api/auth/password/reset",
     };
 
     // 매물 목록 공개 조회. 쓰기 메서드(POST/PATCH/DELETE)는 이 매처에 포함하지 않는다.
