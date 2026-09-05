@@ -38,6 +38,17 @@ class RequiredPropertyGuardTest {
     }
 
     @Test
+    @DisplayName("운영에서 메일 제공자가 log면 기동을 막는다 (값이 있는 것만으로는 부족하다)")
+    void logMailProviderInProd_isRejected() {
+        MockEnvironment env = fullyConfigured();
+        env.setProperty("app.mail.provider", "log");
+
+        assertThatThrownBy(() -> new RequiredPropertyGuard(env).checkRequiredProperties())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("app.mail.provider");
+    }
+
+    @Test
     @DisplayName("누락된 키를 전부 모아서 한 번에 보고한다")
     void missingKeys_areReportedTogether() {
         MockEnvironment env = fullyConfigured();
