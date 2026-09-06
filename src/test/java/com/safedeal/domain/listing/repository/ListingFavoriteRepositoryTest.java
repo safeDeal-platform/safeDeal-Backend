@@ -53,7 +53,8 @@ class ListingFavoriteRepositoryTest extends IntegrationTestSupport {
     }
 
     private ListingFavorite favorite(Long userId, Listing listing) {
-        return listingFavoriteRepository.saveAndFlush(ListingFavorite.of(userId, listing));
+        return listingFavoriteRepository.saveAndFlush(
+                ListingFavorite.of(userId, listing, listing.getPrice()));
     }
 
     private List<ListingFavorite> page(Instant lastCreatedAt, Long lastId, int size) {

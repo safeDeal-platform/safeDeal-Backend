@@ -8,6 +8,7 @@ import com.safedeal.domain.listing.entity.ListingFavorite;
 import com.safedeal.domain.listing.repository.ListingFavoriteRepository;
 import com.safedeal.domain.listing.repository.ListingRepository;
 import com.safedeal.global.exception.BusinessException;
+import com.safedeal.domain.listing.exception.ListingErrorCode;
 import com.safedeal.global.exception.CommonErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -96,7 +97,7 @@ class FavoriteCommandServiceTest {
         assertThatThrownBy(() -> favoriteCommandService.add(2L, PUBLIC_ID))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
-                .isEqualTo(CommonErrorCode.CONFLICT);
+                .isEqualTo(ListingErrorCode.FAVORITE_TARGET_NOT_LISTABLE);
         verify(listingFavoriteRepository, never())
                 .insertIfAbsent(any(), any(), anyInt(), any());
     }

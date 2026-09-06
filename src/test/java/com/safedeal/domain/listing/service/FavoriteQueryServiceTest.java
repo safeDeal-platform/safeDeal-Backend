@@ -50,7 +50,7 @@ class FavoriteQueryServiceTest {
         Category leaf = Category.child("DIGITAL_PHONE", "스마트폰", root, 1);
         Listing listing = Listing.register("01J3A" + id, 1L, "아이폰 " + id, "설명", 950_000,
                 leaf, ItemCondition.USED, "서울특별시", "강남구", false);
-        ListingFavorite favorite = ListingFavorite.of(USER, listing);
+        ListingFavorite favorite = ListingFavorite.of(USER, listing, listing.getPrice());
         ReflectionTestUtils.setField(favorite, "id", id);
         ReflectionTestUtils.setField(favorite, "createdAt", createdAt);
         return favorite;

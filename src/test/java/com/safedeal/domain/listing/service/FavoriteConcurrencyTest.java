@@ -13,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -20,6 +21,7 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -55,6 +57,11 @@ class FavoriteConcurrencyTest extends IntegrationTestSupport {
                 950_000, phone, ItemCondition.USED, "서울특별시", "강남구", false));
     }
 
+    /**
+     * 비트랜잭션이라 이 삭제는 커밋된다. 카테고리와 달리 매물은 시더가 없어 되돌릴 기준
+     * 상태가 없고, 매물을 쓰는 테스트는 각자 {@code @BeforeEach}에서 자기 것을 만든다.
+     * 매물을 미리 만들어 두고 공유하는 비트랜잭션 클래스가 생기면 그때는 여기가 깨진다.
+     */
     @AfterEach
     void clear() {
         listingFavoriteRepository.deleteAllInBatch();
@@ -69,7 +76,9 @@ class FavoriteConcurrencyTest extends IntegrationTestSupport {
             List<Callable<Throwable>> tasks = new ArrayList<>();
             for (int i = 0; i < THREADS; i++) {
                 tasks.add(() -> {
-                    barrier.await();
+                    // 타임아웃이 없으면 스레드 하나가 배리어 전에 죽었을 때 나머지가
+                    // 무기한 대기하고 invokeAll도 끝나지 않아 CI가 그대로 멈춘다.
+                    barrier.await(5, TimeUnit.SECONDS);
                     try {
                         action.run();
                         return null;
@@ -118,10 +127,15 @@ class FavoriteConcurrencyTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("찜 기준가는 재찜이 몰려도 최초 가격을 유지한다")
+    @DisplayName("찜한 뒤 가격이 올라도 재찜이 몰리는 것만으로는 기준가가 오르지 않는다")
     void keepsFirstBasePriceUnderConcurrency() throws Exception {
         favoriteCommandService.add(USER, PUBLIC_ID);
+
+        // 매물 가격을 올려두지 않으면 모든 스레드가 기준가와 같은 값을 써서, ON DUPLICATE KEY
+        // UPDATE를 덮어쓰기로 바꿔도 테스트가 통과한다. 값이 달라야 가드가 검증된다.
         Listing listing = listingRepository.findByPublicId(PUBLIC_ID).orElseThrow();
+        listing.update("아이폰", "설명", 1_200_000, phone, ItemCondition.USED, LocalDate.now());
+        listingRepository.saveAndFlush(listing);
 
         runConcurrently(() -> favoriteCommandService.add(USER, PUBLIC_ID));
 

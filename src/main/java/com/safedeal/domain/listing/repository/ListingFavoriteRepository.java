@@ -15,6 +15,10 @@ import java.util.Optional;
 
 public interface ListingFavoriteRepository extends JpaRepository<ListingFavorite, Long> {
 
+    /**
+     * 한 사용자의 특정 매물 찜 행. 등록·해제는 조회 없이 한 구문으로 처리하므로 운영 경로에는
+     * 호출자가 없고, 지금은 저장된 기준가를 확인하는 테스트가 쓴다.
+     */
     Optional<ListingFavorite> findByUserIdAndListing(Long userId, Listing listing);
 
     /**
@@ -30,9 +34,10 @@ public interface ListingFavoriteRepository extends JpaRepository<ListingFavorite
      * <p>그래서 판정과 삽입을 한 구문으로 합쳐 예외 자체를 만들지 않는다. 중복이면
      * {@code user_id = user_id}라 실제로 바뀌는 값이 없고 MySQL은 0행을 돌려준다.
      *
-     * <p><b>{@code notify_base_price}를 갱신하지 않는 것이 핵심이다.</b> 재찜 때 기준가를
-     * 다시 쓰면, 판매자가 값을 올린 뒤 사용자가 하트를 다시 누르는 것만으로 기준가가 올라가
-     * "지금까지의 최저가 대비 인하" 정책이 무너진다.
+     * <p><b>{@code notify_base_price}를 갱신하지 않는다.</b> 하트 연타로 같은 행에 여러 요청이
+     * 몰릴 때 기준가가 흔들리지 않게 하기 위한 것이다. 행이 살아 있는 동안만 유효한 가드이며,
+     * 해제(하드 삭제) 후 다시 찜하면 새 행이라 그 시점 가격에서 다시 시작한다 — 기준가가
+     * "찜한 시점의 가격"이라는 명세대로다.
      *
      * <p>네이티브 구문이라 JPA 감사(auditing)를 타지 않으므로 시각을 직접 넘긴다.
      *

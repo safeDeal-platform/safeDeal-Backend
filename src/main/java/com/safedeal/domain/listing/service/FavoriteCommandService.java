@@ -2,6 +2,7 @@ package com.safedeal.domain.listing.service;
 
 import com.safedeal.domain.listing.dto.FavoriteToggleResponse;
 import com.safedeal.domain.listing.entity.Listing;
+import com.safedeal.domain.listing.exception.ListingErrorCode;
 import com.safedeal.domain.listing.repository.ListingFavoriteRepository;
 import com.safedeal.domain.listing.repository.ListingRepository;
 import com.safedeal.global.exception.BusinessException;
@@ -37,8 +38,7 @@ public class FavoriteCommandService {
             // 404가 아니라 409다. 상세 조회는 팔린 매물도 정상 응답하므로, 여기서 "찾을 수
             // 없습니다"를 주면 방금 화면에 띄운 매물이 없다는 뜻이 되어 클라이언트가 링크가
             // 깨진 것으로 오인한다. 존재하지만 상태 때문에 거부하는 경우다.
-            throw new BusinessException(
-                    CommonErrorCode.CONFLICT, "판매 중인 매물만 찜할 수 있습니다.");
+            throw new BusinessException(ListingErrorCode.FAVORITE_TARGET_NOT_LISTABLE);
         }
 
         listingFavoriteRepository.insertIfAbsent(

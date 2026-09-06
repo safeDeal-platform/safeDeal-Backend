@@ -16,8 +16,6 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.Instant;
-
 /**
  * 찜(관심 매물). 가격변동 알림의 데이터 소스다.
  *
@@ -26,16 +24,15 @@ import java.time.Instant;
  * 이쪽으로 맞춘다. 단순 {@code favorites}는 나중에 다른 대상(판매자 찜 등)이 생기면 무엇을
  * 찜한 것인지 이름만으로 알 수 없다.
  *
- * <p><b>{@link #notifyBasePrice}가 이 테이블의 존재 이유다.</b> 알림은 "찜한 시점보다 싸졌나"가
- * 아니라 "지금까지의 최저가보다 싸졌나"로 판정한다. 그래서 기준가를 찜한 시점 가격에서 시작해
- * 더 낮은 값이 나올 때만 낮추고, 판매자가 가격을 올려도 되돌리지 않는다 — 그래야 내렸다 올렸다를
- * 반복해도 알림이 반복 발송되지 않는다.
+ * <p><b>{@link #notifyBasePrice}가 이 테이블의 존재 이유다.</b> 명세대로 <b>찜한 시점의
+ * 가격</b>을 기준가로 잡는다. 이 값이 찜 행에 붙어 있어야 알림 도메인이 "이 사용자에게 알릴
+ * 만큼 내렸나"를 판정할 수 있다. 판정과 발송은 알림 도메인 소관이라 여기서 다루지 않는다.
  *
- * <p>{@code MutableEntity}인 이유: 기준가와 마지막 발송 시각이 갱신된다. ERD에는 created_at만
- * 있으나, 정책의 판정 기준은 "테이블 이름이 아니라 실제 UPDATE 존재 여부"다.
+ * <p>{@code MutableEntity}인 이유: 기준가가 갱신될 수 있다. ERD에는 created_at만 있으나,
+ * 정책의 판정 기준은 "테이블 이름이 아니라 실제 UPDATE 존재 여부"다.
  *
- * <p>해제는 하드 삭제다. 본인 데이터이고 분쟁 증거 가치가 없어 남길 이유가 없다. 다시 찜하면
- * 그 시점 가격으로 기준가가 새로 시작한다.
+ * <p>해제는 하드 삭제다. 본인 데이터이고 분쟁 증거 가치가 없어 남길 이유가 없다. 기준가는
+ * 행 단위이므로 다시 찜하면 그 시점 가격에서 새로 시작한다.
  */
 @Entity
 @Getter
@@ -65,13 +62,9 @@ public class ListingFavorite extends MutableEntity {
     @JoinColumn(name = "listing_id", nullable = false, updatable = false)
     private Listing listing;
 
-    /** 알림 기준가. 찜한 시점 가격에서 시작해 최저가로만 내려간다. */
+    /** 알림 기준가. 찜한 시점의 매물 가격이다. */
     @Column(name = "notify_base_price", nullable = false)
     private int notifyBasePrice;
-
-    /** 마지막 가격변동 알림 발송 시각. 아직 보낸 적 없으면 null. */
-    @Column(name = "last_notified_at")
-    private Instant lastNotifiedAt;
 
     private ListingFavorite(Long userId, Listing listing, int notifyBasePrice) {
         this.userId = userId;
@@ -80,44 +73,25 @@ public class ListingFavorite extends MutableEntity {
     }
 
     /**
-     * 찜한다. 기준가는 찜하는 순간의 가격이다.
+     * 찜 행을 만든다.
+     *
+     * <p><b>기준가를 인자로 받는다.</b> "기준가 = 찜한 시점의 가격"이라는 규칙은 등록 경로가
+     * 소유한다({@code FavoriteCommandService}). 여기서 {@code listing.getPrice()}를 다시 읽으면
+     * 같은 규칙이 두 곳에 생겨, 한쪽만 고쳐도 다른 쪽이 조용히 남는다.
+     *
+     * <p>운영 등록은 동시성 때문에 네이티브 {@code insertIfAbsent}로만 들어간다. 이 팩터리는
+     * 그 경로를 타지 않는 곳(테스트 픽스처)에서 행을 만들 때 쓴다.
      *
      * <p>본인 매물도 찜할 수 있다(정책) — 자기 매물의 가격 변동을 지켜보는 것을 막을 이유가 없고,
      * 막으면 판매자가 다른 계정으로 찜하는 우회만 만든다.
      */
-    public static ListingFavorite of(Long userId, Listing listing) {
+    public static ListingFavorite of(Long userId, Listing listing, int notifyBasePrice) {
         if (userId == null) {
             throw new IllegalArgumentException("사용자는 필수입니다");
         }
         if (listing == null) {
             throw new IllegalArgumentException("매물은 필수입니다");
         }
-        return new ListingFavorite(userId, listing, listing.getPrice());
-    }
-
-    /**
-     * 알림을 보낼 만큼 내렸는지 판정하고, 그렇다면 기준가를 그 가격으로 내린다.
-     *
-     * <p>올랐거나 그대로면 아무것도 하지 않는다 — 기준가를 따라 올리면 "내렸다 올렸다"를
-     * 반복하는 것만으로 알림이 계속 나간다.
-     *
-     * <p><b>발송 기록({@link #markNotified})은 여기서 찍지 않는다.</b> 실제 발송은 알림
-     * 도메인에서 일어나고 실패할 수 있는데, 판정과 함께 미리 찍어두면 발송이 실패해도
-     * 기준가는 이미 내려가 있어 <b>같은 가격으로는 두 번 다시 알림이 나가지 않는다.</b>
-     * 최저가 기준 정책상 되돌릴 방법도 없으므로, 발송에 성공한 뒤에 따로 기록한다.
-     *
-     * @return 기준가가 실제로 내려갔으면 true(= 알림 대상)
-     */
-    public boolean lowerBasePriceIfDropped(int currentPrice) {
-        if (currentPrice >= notifyBasePrice) {
-            return false;
-        }
-        this.notifyBasePrice = currentPrice;
-        return true;
-    }
-
-    /** 알림을 실제로 보낸 뒤에 호출한다. 발송 실패와 발송 성공을 구분하기 위해 분리했다. */
-    public void markNotified(Instant now) {
-        this.lastNotifiedAt = now;
+        return new ListingFavorite(userId, listing, notifyBasePrice);
     }
 }

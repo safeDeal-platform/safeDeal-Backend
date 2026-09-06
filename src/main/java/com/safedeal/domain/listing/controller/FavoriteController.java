@@ -21,9 +21,10 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 찜.
  *
- * <p>등록·해제는 매물 하위 경로이고 목록은 내 정보 하위 경로라 매핑 루트가 갈린다 —
- * {@code ListingController}에 끼워 넣으면 클래스 레벨 {@code @RequestMapping}과 어긋나므로
- * 도메인 기능 단위로 컨트롤러를 따로 둔다. 세 API 모두 인증 필수다.
+ * <p>찜은 매물과 별개의 기능 단위라 컨트롤러를 따로 둔다. 등록·해제만 보면
+ * {@code ListingController}의 {@code /api/listings} 아래에도 들어가지만, 목록이
+ * {@code /api/users/me/favorites}라 매핑 루트가 갈린다. 셋을 한 곳에 모으는 편이 읽기 쉽다.
+ * 세 API 모두 인증 필수다.
  */
 @RestController
 @RequiredArgsConstructor

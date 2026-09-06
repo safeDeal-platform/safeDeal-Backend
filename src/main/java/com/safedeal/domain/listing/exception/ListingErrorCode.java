@@ -21,7 +21,15 @@ public enum ListingErrorCode implements ErrorCode {
 
     /** 반복해서 내렸다 올려 노출을 끌어올리는 어뷰징을 막는 하루 한도. */
     PRICE_DROP_LIMIT_EXCEEDED(HttpStatus.BAD_REQUEST, "LST001",
-            "가격 인하는 하루 2회까지 가능합니다.");
+            "가격 인하는 하루 2회까지 가능합니다."),
+
+    /**
+     * 팔렸거나 내려간 매물을 새로 찜하려 한 경우. 상태 코드는 {@code CommonErrorCode.CONFLICT}와
+     * 같은 409지만 코드를 분리한다 — 범용 C004로 내보내면 클라이언트가 다른 충돌과 구분할 수
+     * 없어 "이미 판매된 상품입니다" 같은 안내를 만들려면 한국어 메시지를 문자열 비교해야 한다.
+     */
+    FAVORITE_TARGET_NOT_LISTABLE(HttpStatus.CONFLICT, "LST002",
+            "판매 중인 매물만 찜할 수 있습니다.");
 
     private final HttpStatus status;
     private final String code;
