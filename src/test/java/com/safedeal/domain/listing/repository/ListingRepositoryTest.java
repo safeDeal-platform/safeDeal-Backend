@@ -51,6 +51,19 @@ class ListingRepositoryTest extends IntegrationTestSupport {
         return listingRepository.saveAndFlush(listing);
     }
 
+    /**
+     * 소프트 삭제된 상태를 만든다. 엔티티에 {@code softDelete}가 있어도 이 PR에는 그것을
+     * 호출하는 경로가 없어, 가격 CHECK 검증과 같은 방식으로 컬럼을 직접 찍는다.
+     */
+    private void markDeleted(Listing listing) {
+        entityManager.createNativeQuery(
+                        "UPDATE listings SET deleted_at = NOW(6) WHERE id = :id")
+                .setParameter("id", listing.getId())
+                .executeUpdate();
+        entityManager.flush();
+        entityManager.clear();
+    }
+
     private ListingSearchCondition cond(int size) {
         return new ListingSearchCondition(List.of(), null, null, null, null, null, null, size);
     }
@@ -92,6 +105,8 @@ class ListingRepositoryTest extends IntegrationTestSupport {
         Listing hidden = Listing.register("01J00000000000000000000009", 1L, "숨김", "설명",
                 10_000, phone, ItemCondition.USED, "서울특별시", "강남구", true);
         listingRepository.saveAndFlush(hidden);
+        // ACTIVE인 채로 삭제된 행. 상태 필터만 걸려 있으면 이 행이 그대로 노출된다.
+        markDeleted(save("지운것", 10_000, phone, "강남구"));
 
         List<Listing> rows = listingRepository.findPublicPage(cond(10));
 
@@ -147,9 +162,14 @@ class ListingRepositoryTest extends IntegrationTestSupport {
     @DisplayName("public_id로 찾되 삭제분은 제외한다")
     void findByPublicId() {
         Listing saved = save("찾을것", 10_000, phone, "강남구");
+        Listing deleted = save("지운것", 10_000, phone, "강남구");
+        markDeleted(deleted);
 
         assertThat(listingRepository.findByPublicIdAndDeletedAtIsNull(saved.getPublicId()))
                 .isPresent();
+        // 없는 id가 아니라 "있지만 삭제된" id로 확인해야 deleted_at 조건이 실제로 검증된다.
+        assertThat(listingRepository.findByPublicIdAndDeletedAtIsNull(deleted.getPublicId()))
+                .isEmpty();
         assertThat(listingRepository.findByPublicIdAndDeletedAtIsNull("01J00000000000000000000000"))
                 .isEmpty();
     }

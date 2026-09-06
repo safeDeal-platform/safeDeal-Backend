@@ -12,7 +12,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
@@ -62,6 +61,7 @@ public class Listing extends MutableEntity {
     public static final int MIN_PRICE = 1_000;
     public static final int MAX_PRICE = 100_000_000;
     public static final int MAX_TITLE_LENGTH = 100;
+    public static final int MAX_DESCRIPTION_LENGTH = 2_000;
     /** 하루 인하 허용 횟수. 반복해서 내렸다 올려 노출을 끌어올리는 어뷰징을 막는다. */
     public static final int MAX_PRICE_DROPS_PER_DAY = 2;
 
@@ -79,8 +79,13 @@ public class Listing extends MutableEntity {
     @Column(nullable = false, length = MAX_TITLE_LENGTH)
     private String title;
 
-    @Lob
-    @Column(nullable = false)
+    /**
+     * 길이를 명시한다. {@code @Lob}만 두면 JPA 기본 길이 255가 실려 MySQLDialect가 이를
+     * {@code tinytext}(255<b>바이트</b> = 한글 85자)로 매핑한다 — 두 문단짜리 설명이 저장
+     * 시점에 {@code Data too long}으로 튕긴다. MVP 동안 스키마 진실이 엔티티이므로 이 값이
+     * 그대로 V1__init.sql에 굳는다.
+     */
+    @Column(nullable = false, length = MAX_DESCRIPTION_LENGTH)
     private String description;
 
     @Column(nullable = false)

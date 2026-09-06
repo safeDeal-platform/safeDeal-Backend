@@ -33,6 +33,7 @@ public record ListingCreateRequest(
         String categoryCode,
 
         @NotBlank(message = "설명은 필수입니다")
+        @Size(max = Listing.MAX_DESCRIPTION_LENGTH, message = "설명은 2000자 이하여야 합니다")
         String description,
 
         @NotNull(message = "물품 상태는 필수입니다")
