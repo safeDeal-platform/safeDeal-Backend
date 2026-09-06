@@ -13,14 +13,14 @@
 # Boot 3.3부터 layertools는 deprecated, Boot 4는 -Djarmode=tools를 쓴다.
 # --layers를 붙여야 의존성/로더/스냅샷/애플리케이션이 분리돼 Docker 레이어 캐시가 산다
 # — 코드만 바뀌면 마지막 레이어만 다시 만들어진다.
-FROM eclipse-temurin:17-jre-jammy AS extract
+FROM eclipse-temurin:21-jre-jammy AS extract
 WORKDIR /work
 # 이름이 build.gradle에서 application.jar로 고정돼 있다 — 글롭을 쓰면 잔재 jar가 섞인다.
 COPY build/libs/application.jar application.jar
 RUN java -Djarmode=tools -jar application.jar extract --layers --destination extracted
 
 # ── 2단계: 런타임 ──────────────────────────────────────────────────────
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
 # 변경 빈도가 낮은 순서로 복사해야 캐시 적중률이 높다.
