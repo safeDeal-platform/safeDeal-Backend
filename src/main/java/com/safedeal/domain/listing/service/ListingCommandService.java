@@ -85,7 +85,8 @@ public class ListingCommandService {
         Category category = loadUsableLeafCategory(request.categoryCode());
         try {
             listing.update(request.title(), request.description(), request.price(),
-                    category, request.itemCondition(), LocalDate.now(LIMIT_ZONE));
+                    category, request.itemCondition(), request.regionSido(),
+                    request.regionSigungu(), LocalDate.now(LIMIT_ZONE));
         } catch (Listing.PriceDropLimitExceededException e) {
             throw new BusinessException(ListingErrorCode.PRICE_DROP_LIMIT_EXCEEDED);
         }

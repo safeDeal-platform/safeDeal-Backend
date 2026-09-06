@@ -15,6 +15,7 @@ import com.safedeal.global.response.CursorResponse;
 import com.safedeal.global.security.AuthenticatedUser;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/listings")
 @RequiredArgsConstructor
@@ -76,11 +78,27 @@ public class ListingController {
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable String publicId) {
         ListingDetailResponse detail = listingQueryService.getListing(publicId);
-        listingCommandService.increaseViewCount(
-                publicId,
-                user == null ? null : user.userId(),
-                user != null && ADMIN_ROLE.equals(user.role()));
+        increaseViewCountQuietly(publicId, user);
         return ApiResponse.success(detail);
+    }
+
+    /**
+     * 조회수 증가는 실패해도 상세 조회를 죽이지 않는다.
+     *
+     * <p>조회수는 정책상 표시용이고 중복 제거도 하지 않는 값이다. 반면 이 경로는 비로그인으로
+     * 열려 있는 공개 읽기다 — 이미 성공한 조회가 부수 효과 때문에 500이 되면 안 된다.
+     * 같은 행을 잠그는 UPDATE라 인기 매물에서는 락 대기가 길어질 수 있고, 그 타임아웃도
+     * 여기로 들어온다. 유실은 감수하고 로그만 남긴다.
+     */
+    private void increaseViewCountQuietly(String publicId, AuthenticatedUser user) {
+        try {
+            listingCommandService.increaseViewCount(
+                    publicId,
+                    user == null ? null : user.userId(),
+                    user != null && ADMIN_ROLE.equals(user.role()));
+        } catch (RuntimeException e) {
+            log.warn("조회수 증가 실패 - publicId={}, reason={}", publicId, e.toString());
+        }
     }
 
     /** 관리자 조회는 조회수에 세지 않는다(정책). */

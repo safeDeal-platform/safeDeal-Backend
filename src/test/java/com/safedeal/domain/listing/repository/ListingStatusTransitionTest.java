@@ -132,7 +132,7 @@ class ListingStatusTransitionTest extends IntegrationTestSupport {
         Long before = listing.getVersion();
 
         listing.update("수정", "설명", 800_000, phone, ItemCondition.USED,
-                java.time.LocalDate.of(2026, 8, 31));
+                "서울특별시", "강남구", java.time.LocalDate.of(2026, 8, 31));
         // 트랜잭션 밖이라 listing은 분리 상태다. merge 결과가 최신 버전을 갖는다.
         Listing merged = listingRepository.saveAndFlush(listing);
 

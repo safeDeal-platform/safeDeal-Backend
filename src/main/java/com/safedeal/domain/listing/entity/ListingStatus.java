@@ -43,8 +43,11 @@ public enum ListingStatus {
         // 정책이 명시한 전이만 넣는다 — "그 외 전이 금지"가 원칙이라, 있으면 편할 것 같은
         // 전이를 미리 열어두지 않는다.
         ALLOWED.put(DRAFT, EnumSet.of(PENDING_VERIFICATION, ACTIVE));
-        // 검증 점수가 차단 구간이면 공개되지 못하고 곧바로 차단된다.
-        ALLOWED.put(PENDING_VERIFICATION, EnumSet.of(ACTIVE, BLOCKED));
+        // 검증 점수가 차단 구간이면 공개되지 못하고 곧바로 차단된다. DELETED는 판매자의
+        // 철회 경로다 — 재촬영을 요구받고 "그만 팔겠다"를 못 하면 그 매물이 검증 대기로
+        // 영원히 남는다. 소프트 삭제라 검증 이력·거래 스냅샷은 보존되므로, BLOCKED를
+        // 못 지우게 한 증거 보존 원칙과 충돌하지 않는다.
+        ALLOWED.put(PENDING_VERIFICATION, EnumSet.of(ACTIVE, BLOCKED, DELETED));
         // 이미지를 바꾸면 낡은 승인이 그대로 붙는 것을 막으려 검증 대기로 되돌린다.
         ALLOWED.put(ACTIVE, EnumSet.of(SOLD, BLOCKED, DELETED, PENDING_VERIFICATION));
         // 수동 SOLD 되돌리기(24시간)와 결제 환불 복구가 이 경로를 쓴다.

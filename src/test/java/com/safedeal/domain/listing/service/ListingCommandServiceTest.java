@@ -93,7 +93,7 @@ class ListingCommandServiceTest {
 
     private ListingUpdateRequest updateRequest(int price, Long version) {
         return new ListingUpdateRequest("수정 제목", price, "DIGITAL_PHONE", "수정 설명",
-                ItemCondition.USED, version);
+                ItemCondition.USED, "서울특별시", "강남구", version);
     }
 
     @Test

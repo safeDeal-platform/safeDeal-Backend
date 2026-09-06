@@ -216,12 +216,17 @@ public class Listing extends MutableEntity {
      * <p>가격을 내리는 경우에만 하루 한도를 센다. 올리거나 그대로 두는 건 세지 않는다 —
      * 막으려는 것이 "내렸다 올렸다를 반복해 목록 상단에 계속 뜨는 행위"이기 때문이다.
      *
+     * <p>지역도 수정 대상이다. 등록에서만 받고 여기서 빼면, 시/도·시/군/구를 잘못 넣은
+     * 판매자가 삭제 후 재등록 외에는 고칠 방법이 없다 — 그러면 public_id·조회수·찜이 함께
+     * 사라진다. 지역은 목록 필터의 주요 축이라 오타 하나로 검색에서 통째로 빠진다.
+     *
      * @param today 오늘 날짜. 서버 시계를 직접 읽지 않고 받는다 — 그래야 날짜 경계 동작을
      *              테스트로 고정할 수 있다.
      * @throws PriceDropLimitExceededException 하루 인하 한도를 넘긴 경우
      */
     public void update(String title, String description, int price, Category category,
-                       ItemCondition itemCondition, LocalDate today) {
+                       ItemCondition itemCondition, String regionSido, String regionSigungu,
+                       LocalDate today) {
         requireText(title, "title");
         requireText(description, "description");
         validatePrice(price);
@@ -229,6 +234,8 @@ public class Listing extends MutableEntity {
         if (itemCondition == null) {
             throw new IllegalArgumentException("물품 상태는 필수입니다");
         }
+        requireText(regionSido, "regionSido");
+        requireText(regionSigungu, "regionSigungu");
 
         if (price < this.price) {
             countPriceDrop(today);
@@ -238,6 +245,8 @@ public class Listing extends MutableEntity {
         this.price = price;
         this.category = category;
         this.itemCondition = itemCondition;
+        this.regionSido = regionSido.strip();
+        this.regionSigungu = regionSigungu.strip();
     }
 
     private void countPriceDrop(LocalDate today) {
