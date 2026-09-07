@@ -14,11 +14,18 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
+
 /**
  * 사용자에게 전달되는 알림 한 건.
  *
- * <p>정책(재민/알림)상 알림은 <b>1회성</b>이다 — 읽음 처리가 없어 read_at 컬럼을 두지 않는다.
- * 알림 레코드 자체가 IN_APP 전달의 진실(source of truth)이며, 즉시 push가 유실돼도 목록
+ * <p><b>발송은 1회성이지만 읽음 처리는 있다.</b> 정책(재민/알림 — '결정 이력')이 2026-08-30에
+ * 뒤집혔다: 원래는 "1회성이라 읽음 처리 불필요"였으나 <b>확정(2026-08-30)으로 read_at이
+ * 되살아났고</b>, 목록에서 읽은 알림과 안 읽은 알림을 구분하기로 했다. "1회성 발송"과 "읽음
+ * 표시"는 별개 개념이다 — 발송은 여전히 한 번이고, 생성된 레코드에 읽은 시각만 기록된다.
+ * 옛 주석("읽음 처리가 없어 read_at 컬럼을 두지 않는다")을 보고 되돌리지 말 것.
+ *
+ * <p>알림 레코드 자체가 IN_APP 전달의 진실(source of truth)이며, 즉시 push가 유실돼도 목록
  * 조회(커서 폴링)로 복구된다.
  *
  * <p><b>스키마 메모(targetId):</b> V1 초안(db/migration)은 target_id를 BIGINT(내부 PK)로
@@ -83,6 +90,16 @@ public class Notification extends MutableEntity {
     @Column(name = "retry_count", nullable = false)
     private int retryCount;
 
+    /**
+     * 읽은 시각. null이면 아직 안 읽음 — 목록의 읽음/안읽음 구분이 이 값 하나로 결정된다.
+     *
+     * <p>별도 boolean 컬럼을 두지 않는 이유: 두 값을 함께 두면 "read=true인데 read_at이 null"
+     * 같은 모순 상태가 생길 수 있고, 시각은 나중에 "언제 확인했나"가 필요해질 때 그대로 쓸 수
+     * 있다. 정책도 boolean이 아니라 read_at 복구로 확정했다.
+     */
+    @Column(name = "read_at")
+    private Instant readAt;
+
     private Notification(Long userId, NotificationType type, NotificationChannel channel,
                          String title, String body,
                          NotificationTargetType targetType, String targetId,
@@ -112,5 +129,25 @@ public class Notification extends MutableEntity {
                                      String metadata) {
         return new Notification(userId, type, NotificationChannel.IN_APP,
                 title, body, targetType, targetId, metadata, NotificationStatus.SENT);
+    }
+
+    /**
+     * 읽음으로 표시한다.
+     *
+     * <p><b>이미 읽었으면 최초 시각을 유지한다.</b> 폴링 클라이언트는 같은 알림을 여러 번
+     * 읽음 처리로 보낼 수 있는데(즉시 push와 catch-up이 겹치는 구간), 그때마다 시각을 덮으면
+     * "언제 처음 확인했나"를 잃는다. 덕분에 이 연산은 몇 번을 호출해도 결과가 같다.
+     *
+     * @param readAt 읽은 시각. 호출자가 주입해 테스트에서 시각을 고정할 수 있게 한다
+     */
+    public void markAsRead(Instant readAt) {
+        if (this.readAt == null) {
+            this.readAt = readAt;
+        }
+    }
+
+    /** 읽었는지. 응답의 isRead가 이 값이다. */
+    public boolean isRead() {
+        return readAt != null;
     }
 }

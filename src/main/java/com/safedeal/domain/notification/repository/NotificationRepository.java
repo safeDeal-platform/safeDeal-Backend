@@ -5,6 +5,7 @@ import com.safedeal.domain.notification.entity.NotificationChannel;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 알림 조회 리포지토리.
@@ -31,4 +32,14 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
      */
     List<Notification> findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdAsc(
             Long userId, NotificationChannel channel, Long sinceId);
+
+    /**
+     * 읽음 처리 대상 조회.
+     *
+     * <p><b>id만이 아니라 userId까지 조건에 넣는다.</b> id만으로 찾아 온 뒤 소유자를 비교하면
+     * 검사를 빠뜨리는 순간 남의 알림을 읽음 처리할 수 있다(IDOR). 조건을 쿼리에 박아두면
+     * 남의 알림은 애초에 조회되지 않고, 호출부는 "없으면 404" 하나만 처리하면 된다 —
+     * 존재 여부 자체도 알려주지 않는다.
+     */
+    Optional<Notification> findByIdAndUserId(Long id, Long userId);
 }

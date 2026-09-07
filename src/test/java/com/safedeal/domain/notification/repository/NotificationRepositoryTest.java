@@ -18,6 +18,7 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -127,5 +128,39 @@ class NotificationRepositoryTest {
                         saved.get(13).getId(), saved.get(14).getId(), saved.get(15).getId(),
                         saved.get(16).getId(), saved.get(17).getId(), saved.get(18).getId(),
                         saved.get(19).getId());
+    }
+
+    @Test
+    @DisplayName("읽음 처리 대상은 본인 알림만 조회된다")
+    void findsOwnNotificationById() {
+        Notification saved = notificationRepository.save(inApp());
+
+        assertThat(notificationRepository.findByIdAndUserId(saved.getId(), USER))
+                .isPresent();
+    }
+
+    @Test
+    @DisplayName("남의 알림은 id가 맞아도 조회되지 않는다 (IDOR 방지)")
+    void doesNotFindOthersNotification() {
+        Notification saved = notificationRepository.save(inApp());
+
+        // 소유자 조건이 쿼리에서 빠지면 이 단언이 깨지고, 그 순간 남의 알림을 읽음 처리할 수 있다.
+        assertThat(notificationRepository.findByIdAndUserId(saved.getId(), OTHER_USER))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("read_at은 저장 후에도 null이고, 읽음 처리하면 값이 남는다")
+    void persistsReadAt() {
+        Notification saved = notificationRepository.save(inApp());
+        assertThat(saved.getReadAt()).isNull();
+
+        saved.markAsRead(Instant.parse("2026-09-06T10:00:00Z"));
+        notificationRepository.flush();
+
+        assertThat(notificationRepository.findByIdAndUserId(saved.getId(), USER))
+                .get()
+                .extracting(Notification::getReadAt)
+                .isEqualTo(Instant.parse("2026-09-06T10:00:00Z"));
     }
 }

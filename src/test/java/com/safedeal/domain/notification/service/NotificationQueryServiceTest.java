@@ -1,5 +1,6 @@
 package com.safedeal.domain.notification.service;
 
+import com.safedeal.domain.notification.dto.NotificationItemResponse;
 import com.safedeal.domain.notification.dto.NotificationListResponse;
 import com.safedeal.domain.notification.entity.Notification;
 import com.safedeal.domain.notification.entity.NotificationChannel;
@@ -113,5 +114,20 @@ class NotificationQueryServiceTest {
 
         assertThat(response.items()).isEmpty();
         assertThat(response.latestId()).isNull();
+    }
+
+    @Test
+    @DisplayName("읽은 알림은 목록 응답에 isRead=true로 실린다")
+    void getNotifications_exposesReadState() {
+        Notification unread = notificationWithId(88);
+        Notification read = notificationWithId(87);
+        read.markAsRead(Instant.parse("2026-09-06T10:00:00Z"));
+        when(notificationRepository.findTop10ByUserIdAndChannelOrderByIdDesc(USER_ID, NotificationChannel.IN_APP))
+                .thenReturn(List.of(unread, read));
+
+        NotificationListResponse response = notificationQueryService.getNotifications(USER_ID, null);
+
+        assertThat(response.items()).extracting(NotificationItemResponse::isRead)
+                .containsExactly(false, true);
     }
 }
