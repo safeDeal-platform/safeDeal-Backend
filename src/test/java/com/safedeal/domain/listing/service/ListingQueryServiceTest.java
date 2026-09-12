@@ -4,6 +4,7 @@ import com.safedeal.domain.listing.dto.ListingSummaryResponse;
 import com.safedeal.domain.listing.entity.Category;
 import com.safedeal.domain.listing.entity.ItemCondition;
 import com.safedeal.domain.listing.entity.Listing;
+import com.safedeal.domain.listing.entity.ListingStatus;
 import com.safedeal.domain.listing.repository.CategoryRepository;
 import com.safedeal.domain.listing.repository.ListingRepository;
 import com.safedeal.domain.listing.repository.ListingSearchCondition;
@@ -292,5 +293,36 @@ class ListingQueryServiceTest {
         verify(cursorCodec).encode(captor.capture());
         assertThat(captor.getValue().lastId()).isEqualTo(3L);
         assertThat(captor.getValue().sort()).isEqualTo(ListingQueryService.SORT_KEY);
+    }
+
+    // ── 상세 조회 ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("카테고리가 내려가도 상세는 열어준다 — 목록에서 빠지는 것과 판단이 다른 것이 의도다")
+    void detailStaysOpenWhenCategoryIsDeactivated() {
+        // 목록(resolveCategoryIds)은 비활성 분류를 걸러내지만 상세는 막지 않는다. 내려간 것은
+        // 분류일 뿐 매물은 판매중이고, 여기서 404를 주면 채팅으로 흥정하던 구매자와 판매자 본인이
+        // 자기 매물을 못 본다. 이 판단을 "일관성"을 이유로 되돌리면 이 테스트가 깨진다.
+        Category retired = leaf(10L);
+        retired.deactivate();
+        Listing listing = Listing.register("01J00000000000000000000001", 1L, "아이폰", "설명",
+                950_000, retired, ItemCondition.USED, "서울특별시", "강남구", false);
+        when(listingRepository.findByPublicIdAndDeletedAtIsNull("01J00000000000000000000001"))
+                .thenReturn(Optional.of(listing));
+
+        assertThat(service().getListing("01J00000000000000000000001")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("차단된 매물은 존재 자체를 알리지 않는다 — 404")
+    void blockedListingIsNotFound() {
+        Listing blocked = listing(1L, "01J00000000000000000000002");
+        ReflectionTestUtils.setField(blocked, "status", ListingStatus.BLOCKED);
+        when(listingRepository.findByPublicIdAndDeletedAtIsNull("01J00000000000000000000002"))
+                .thenReturn(Optional.of(blocked));
+
+        assertThatThrownBy(() -> service().getListing("01J00000000000000000000002"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("매물");
     }
 }
