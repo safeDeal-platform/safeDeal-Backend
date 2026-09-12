@@ -31,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -181,33 +182,32 @@ class ListingQueryServiceTest {
     }
 
     @Test
-    @DisplayName("비활성 중분류로 거르면 매물을 내보내지 않는다 — code를 직접 찍어도 우회되지 않는다")
-    void inactiveLeafCategoryYieldsNoListing() {
-        Category retired = leaf(10L);
-        retired.deactivate();
-        when(categoryRepository.findByCode("DIGITAL_ACC")).thenReturn(Optional.of(retired));
+    @DisplayName("중분류를 내리면 그 code로 직접 찍어도 매물이 안 나가고, 되살리면 다시 나간다")
+    void leafCategoryFilterFollowsActiveFlag() {
+        // 같은 엔티티 한 개의 active만 뒤집어 두 번 조회한다. 서로 다른 객체로 나눠 쓰면
+        // "새로 만든 분류는 기본이 활성"이라는 것만 확인하게 되어(usesLeafCategoryIdDirectly와 중복)
+        // 비활성 검사가 실제로 active 값을 보고 갈리는지는 검증되지 않는다.
+        Category category = leaf(10L);
+        when(categoryRepository.findByCode("DIGITAL_PHONE")).thenReturn(Optional.of(category));
         when(listingRepository.findPublicPage(any())).thenReturn(List.of());
 
-        service().getListings(null, null, "DIGITAL_ACC", null, null, null, null);
-
-        // 대분류로 걸렀을 때 비활성 자식이 빠지는 것과 같은 결과여야 한다. 그 id를 그대로 넘기면
-        // 예전 링크·북마크로 들어온 요청에만 내려간 카테고리가 계속 열린다.
-        // 빈 목록이 아니라 -1L인 이유는 keepsFilterWhenRootHasNoActiveLeaf와 같다.
-        assertThat(captureCondition().categoryIds()).isNotEmpty().containsExactly(-1L);
-    }
-
-    @Test
-    @DisplayName("활성 중분류는 그대로 넘긴다 — 위 비활성 검사가 전부를 막아버리지 않는다")
-    void activeLeafCategoryIsNotFilteredOut() {
-        Category living = leaf(11L);
-        living.deactivate();
-        living.activate();
-        when(categoryRepository.findByCode("DIGITAL_PHONE")).thenReturn(Optional.of(living));
-        when(listingRepository.findPublicPage(any())).thenReturn(List.of());
-
+        category.deactivate();
+        service().getListings(null, null, "DIGITAL_PHONE", null, null, null, null);
+        category.activate();
         service().getListings(null, null, "DIGITAL_PHONE", null, null, null, null);
 
-        assertThat(captureCondition().categoryIds()).containsExactly(11L);
+        // captureCondition()은 호출 1회만 허용하므로 여기서는 두 번의 호출을 모두 붙잡는다.
+        ArgumentCaptor<ListingSearchCondition> captor =
+                ArgumentCaptor.forClass(ListingSearchCondition.class);
+        verify(listingRepository, times(2)).findPublicPage(captor.capture());
+        List<ListingSearchCondition> calls = captor.getAllValues();
+
+        // 비활성일 때: 대분류로 걸렀을 때 비활성 자식이 빠지는 것과 결과가 같아야 한다. id를 그대로
+        // 넘기면 예전 링크·북마크로 들어온 요청에만 내려간 분류가 계속 열린다.
+        // 빈 목록이 아니라 -1L인 이유는 keepsFilterWhenRootHasNoActiveLeaf와 같다.
+        assertThat(calls.get(0).categoryIds()).isNotEmpty().containsExactly(-1L);
+        // 되살리면 같은 분류가 다시 나간다 — 비활성 검사가 활성 경로까지 막아버리지 않는다.
+        assertThat(calls.get(1).categoryIds()).containsExactly(10L);
     }
 
     @Test

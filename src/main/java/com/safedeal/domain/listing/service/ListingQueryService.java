@@ -90,6 +90,12 @@ public class ListingQueryService {
      *
      * <p>차단·삭제된 매물은 존재 자체를 알리지 않으려 404로 돌려준다(명세). 반면 <b>팔린 매물은
      * 열어준다</b> — 거래 당사자가 나중에 확인하고, 채팅·신고에서 넘어온 링크가 죽지 않아야 한다.
+     *
+     * <p><b>카테고리가 비활성으로 내려간 매물도 같은 이유로 열어준다.</b> 목록 조회
+     * ({@link #resolveCategoryIds})는 비활성 분류를 걸러 검색 결과에서 빼지만, 상세는 막지 않는다 —
+     * 내려간 것은 분류일 뿐 매물은 여전히 판매중이고, 여기서 404를 주면 채팅으로 흥정하던 구매자와
+     * 판매자 본인이 자기 매물을 못 보게 된다. "검색에는 안 뜨지만 링크가 있으면 보인다"가 의도다.
+     * 목록과 상세의 이 판단 차이는 실수가 아니므로 맞추려 하지 말 것.
      */
     public ListingDetailResponse getListing(String publicId) {
         Listing listing = listingRepository.findByPublicIdAndDeletedAtIsNull(publicId)
