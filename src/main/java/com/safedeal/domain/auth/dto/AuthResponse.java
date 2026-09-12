@@ -1,6 +1,7 @@
 package com.safedeal.domain.auth.dto;
 
 import com.safedeal.domain.auth.service.AuthTokens;
+import com.safedeal.domain.trust.TrustScore;
 import com.safedeal.domain.user.entity.User;
 
 import java.math.BigDecimal;
@@ -19,8 +20,9 @@ import java.time.Instant;
  * 가리키는 상태가 같다. API 명세서는 가입에만 emailVerified·trustScore를, 로그인에만 role을
  * 적어놨는데 그건 작성 시점의 누락으로 보고 합쳤다(2026-09-06, 프론트 착수 전이라 비용 0).
  *
- * @param trustScore 표시값(내부 0~1000을 10으로 나눈 소수 1자리, 정책 TRS-1). 척도의 소유는
- *                   신뢰도 도메인이므로, 신뢰도 도메인이 들어오면 이 변환은 그쪽 공용 변환기로 옮긴다.
+ * @param trustScore 표시값(내부 0~1000을 10으로 나눈 소수 1자리, 정책 TRS-1).
+ *                   변환은 신뢰도 도메인의 TrustScore.display가 소유한다 — 척도가 바뀌면
+ *                   그쪽 한 곳만 고치면 된다.
  * @param expiresIn  access의 남은 유효 시간(초). JWT의 exp 클레임에 같은 정보가 있지만,
  *                   프론트가 토큰을 디코드하지 않고도 재발급 시점을 잡게 하려고 함께 준다.
  */
@@ -39,9 +41,7 @@ public record AuthResponse(String publicId,
                 user.getNickname(),
                 user.getRole().name(),
                 user.isEmailVerified(),
-                // scale 1의 BigDecimal이라 500 -> 50.0으로 나간다. double을 쓰면 표시 자릿수가
-                // 값에 따라 흔들려(50.0이 50으로) 프론트가 다시 포맷해야 한다.
-                BigDecimal.valueOf(user.getTrustScore(), 1),
+                TrustScore.display(user.getTrustScore()),
                 tokens.access().value(),
                 remainingSeconds(tokens.access().expiresAt()));
     }

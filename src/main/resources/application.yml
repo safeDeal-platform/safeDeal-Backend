@@ -120,6 +120,14 @@ app:
   kafka:
     # 실제 토픽명은 도메인 담당자가 추가한다 (com.safedeal.global.config.KafkaTopicProperties 참고).
     # 예: app.kafka.topics.order-events: ${KAFKA_TOPIC_ORDER_EVENTS:safedeal.order.events.v1}
+    topics:
+      # 신뢰도(TRS)가 소비하는 토픽. 발행 측은 거래(재민)·신고(중현)다.
+      # 정책은 payload만 확정했고 토픽명·eventType 문자열은 정하지 않아, 수신 측이 먼저
+      # 제안한 값이다 — 발행 측 착수 시 팀에서 확정해야 한다.
+      #   trade.completed  v1  {eventId, userId, counterpartyId, refType, refId, occurredAt}
+      #   report.resolved  v1  {eventId, userId, reasonCode, refType, refId, occurredAt}
+      trade-events: ${KAFKA_TOPIC_TRADE_EVENTS:safedeal.trade.events.v1}
+      report-events: ${KAFKA_TOPIC_REPORT_EVENTS:safedeal.report.events.v1}
     consumer-group:
       # 도메인 side-effect 컨슈머(서버 2대 중 1대만 처리)는 아래처럼 고정 group id를 리스너에
       # 직접 지정한다 — 별도 프로퍼티 없이 문자열 리터럴로 충분하다.
