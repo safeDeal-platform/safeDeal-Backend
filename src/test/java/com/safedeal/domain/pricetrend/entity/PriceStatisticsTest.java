@@ -17,7 +17,7 @@ class PriceStatisticsTest {
 
     private static PriceStatistics.PriceStatisticsBuilder base() {
         return PriceStatistics.builder()
-                .category("DIGITAL_MOBILE")
+                .category("DIGITAL_PHONE")
                 .periodType(StatPeriod.D7)
                 .periodStart(LocalDate.of(2026, 8, 9))
                 .periodEnd(LocalDate.of(2026, 8, 16))
@@ -35,7 +35,7 @@ class PriceStatisticsTest {
     void categorySnapshotDefaultsToNull() {
         PriceStatistics stat = base().build();
 
-        assertThat(stat.getCategory()).isEqualTo("DIGITAL_MOBILE");
+        assertThat(stat.getCategory()).isEqualTo("DIGITAL_PHONE");
         assertThat(stat.getCategorySnapshot()).isNull();
     }
 
@@ -43,11 +43,11 @@ class PriceStatisticsTest {
     @DisplayName("categorySnapshot은 category와 독립적으로 다른 값을 가질 수 있다 — category(leaf code) 복사가 아니다")
     void categorySnapshotIsIndependentFromCategory() {
         PriceStatistics stat = base()
-                .categorySnapshot("ELECTRONICS>DIGITAL_MOBILE") // categories 도입 후 실제 형식 예시
+                .categorySnapshot("DIGITAL>DIGITAL_PHONE") // categories 도입 후 실제 형식 예시
                 .build();
 
-        assertThat(stat.getCategory()).isEqualTo("DIGITAL_MOBILE");
-        assertThat(stat.getCategorySnapshot()).isEqualTo("ELECTRONICS>DIGITAL_MOBILE");
+        assertThat(stat.getCategory()).isEqualTo("DIGITAL_PHONE");
+        assertThat(stat.getCategorySnapshot()).isEqualTo("DIGITAL>DIGITAL_PHONE");
         assertThat(stat.getCategorySnapshot()).isNotEqualTo(stat.getCategory());
     }
 }
