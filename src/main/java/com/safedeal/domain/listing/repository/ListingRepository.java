@@ -12,6 +12,4 @@ public interface ListingRepository extends JpaRepository<Listing, Long>, Listing
      * 노출되므로 조회 지점마다 명시한다.
      */
     Optional<Listing> findByPublicIdAndDeletedAtIsNull(String publicId);
-
-    Optional<Listing> findByPublicId(String publicId);
 }
