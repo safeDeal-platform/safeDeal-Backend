@@ -5,8 +5,8 @@ import com.safedeal.testsupport.IntegrationTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.emptyString;
@@ -75,6 +75,25 @@ class ApiContractTest extends IntegrationTestSupport {
         mockMvc.perform(post("/api/listings").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("C005"));
+    }
+
+    @Test
+    @DisplayName("카테고리 목록은 화이트리스트 — 인증 없이 조회된다")
+    void categories_isWhitelisted() throws Exception {
+        mockMvc.perform(get("/api/categories"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+    }
+
+    @Test
+    @DisplayName("카테고리는 조회만 열려 있다 — 인증 없는 쓰기는 통과하지 않는다")
+    void categories_writeIsNotWhitelisted() throws Exception {
+        // permitAll이 GET으로 한정돼 있어 시큐리티가 매핑보다 먼저 걸러 401이 나간다.
+        // 405를 함께 허용하면 permitAll에서 GET 한정이 빠져도(=쓰기가 열려도) 매핑이 없어
+        // 405가 나므로 테스트가 통과해 버린다. 그래서 401만 단언한다.
+        mockMvc.perform(post("/api/categories")
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
     }
 
     // ── requestId ─────────────────────────────────────────────

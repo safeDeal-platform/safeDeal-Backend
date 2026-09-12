@@ -101,12 +101,37 @@ app:
   # PENDING_VERIFICATION에서 멈춰 아무도 매물을 공개할 수 없다.
   verification:
     enabled: ${VERIFICATION_ENABLED:false}
-
+  jwt:
+    # 기본값을 두지 않는다. 기본값이 있으면 배포에서 JWT_SECRET을 빠뜨렸을 때 개발용 키로
+    # 조용히 기동해 누구나 토큰을 위조할 수 있는 상태가 된다(운영은 RequiredPropertyGuard가 재확인).
+    secret: ${JWT_SECRET}
+    # access 30분 · refresh 3일 — 정책 '경화 — JWT'
+    access-ttl: 30m
+    refresh-ttl: 3d
+  mail:
+    # log | resend. 기본값을 두지 않는다(JWT_SECRET과 같은 이유) — 기본이 log면 배포에서
+    # MAIL_PROVIDER를 빠뜨렸을 때 앱이 멀쩡히 뜨고 메일만 조용히 로그로 새어나간다.
+    # 로컬 기본값은 application-local.yml에 있다.
+    provider: ${MAIL_PROVIDER}
+    # Resend는 도메인 인증 전이면 onboarding@resend.dev 외의 발신자를 거부한다.
+    from: ${MAIL_FROM:onboarding@resend.dev}
+    # provider=resend 일 때만 필요하다. 개인 계정 키라 .env에만 두고 커밋하지 않는다.
+    api-key: ${RESEND_API_KEY:}
+    # 메일 본문 링크가 가리킬 프런트엔드 기준 URL.
+    base-url: ${MAIL_BASE_URL:http://localhost:3000}
   security:
     dev-auth-enabled: false
   kafka:
     # 실제 토픽명은 도메인 담당자가 추가한다 (com.safedeal.global.config.KafkaTopicProperties 참고).
     # 예: app.kafka.topics.order-events: ${KAFKA_TOPIC_ORDER_EVENTS:safedeal.order.events.v1}
+    topics:
+      # 신뢰도(TRS)가 소비하는 토픽. 발행 측은 거래(재민)·신고(중현)다.
+      # 정책은 payload만 확정했고 토픽명·eventType 문자열은 정하지 않아, 수신 측이 먼저
+      # 제안한 값이다 — 발행 측 착수 시 팀에서 확정해야 한다.
+      #   trade.completed  v1  {eventId, userId, counterpartyId, refType, refId, occurredAt}
+      #   report.resolved  v1  {eventId, userId, reasonCode, refType, refId, occurredAt}
+      trade-events: ${KAFKA_TOPIC_TRADE_EVENTS:safedeal.trade.events.v1}
+      report-events: ${KAFKA_TOPIC_REPORT_EVENTS:safedeal.report.events.v1}
     consumer-group:
       # 도메인 side-effect 컨슈머(서버 2대 중 1대만 처리)는 아래처럼 고정 group id를 리스너에
       # 직접 지정한다 — 별도 프로퍼티 없이 문자열 리터럴로 충분하다.

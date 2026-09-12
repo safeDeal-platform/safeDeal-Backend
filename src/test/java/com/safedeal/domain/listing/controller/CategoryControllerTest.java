@@ -9,6 +9,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.util.List;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -36,7 +37,9 @@ class CategoryControllerTest {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.categories.length()").value(2))
                 .andExpect(jsonPath("$.data.categories[0].code").value("DIGITAL"))
-                .andExpect(jsonPath("$.data.categories[0].parentCode").doesNotExist())
+                // doesNotExist()는 값이 JSON null이어도 통과한다. 실제 응답에는
+                // "parentCode": null 이 들어가므로 null임을 직접 단언한다.
+                .andExpect(jsonPath("$.data.categories[0].parentCode").value(nullValue()))
                 .andExpect(jsonPath("$.data.categories[1].parentCode").value("DIGITAL"));
     }
 

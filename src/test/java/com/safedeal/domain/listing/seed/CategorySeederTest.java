@@ -10,7 +10,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -36,10 +35,19 @@ class CategorySeederTest extends IntegrationTestSupport {
             CategorySeedData.ROOTS.stream().mapToInt(r -> r.leaves().size()).sum();
     private static final int TOTAL = ROOT_COUNT + LEAF_COUNT;
 
+    /**
+     * 이 클래스는 {@code @Transactional}을 쓰지 않아 변경이 실제로 커밋된다. MySQL 컨테이너는
+     * 전체 테스트가 공유하므로, 비운 채로 끝내면 뒤에 도는 클래스가 카테고리가 없는 DB를 만난다
+     * (실행 순서에 따라 통과·실패가 갈린다). 그래서 지우는 대신 <b>정의 상태로 되돌린다.</b>
+     */
     @AfterEach
-    void clear() {
-        // 자식이 부모를 FK로 참조하므로 중분류를 먼저 지운다. 한 번에 지우면 순서에 따라
-        // 외래키 위반이 난다.
+    void restoreSeed() {
+        clear();
+        categorySeeder.run(null);
+    }
+
+    /** 자식이 부모를 FK로 참조하므로 중분류를 먼저 지운다. 한 번에 지우면 외래키 위반이 난다. */
+    private void clear() {
         List<Category> all = categoryRepository.findAll();
         categoryRepository.deleteAll(all.stream().filter(Category::isLeaf).toList());
         categoryRepository.flush();
@@ -133,16 +141,22 @@ class CategorySeederTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("모든 중분류 code는 부모 code로 시작한다")
-    void leafCodeCarriesParentPrefix() {
+    @DisplayName("대분류가 정의에서 빠지면 그 아래 중분류도 함께 비활성된다")
+    void removingRootDeactivatesItsLeaves() {
         clear();
+        // 정의에 없는 대분류와 그 자식을 직접 만들어 둔다.
+        Category orphanRoot = categoryRepository.saveAndFlush(
+                Category.root("LEGACY", "없어질 대분류", 99));
+        categoryRepository.saveAndFlush(
+                Category.child("LEGACY_ONE", "그 아래", orphanRoot, 1));
+
         categorySeeder.run(null);
 
-        Map<String, Category> byCode = categoryRepository.findAll().stream()
-                .collect(java.util.stream.Collectors.toMap(Category::getCode, Function.identity()));
-
-        assertThat(byCode.values().stream().filter(Category::isLeaf))
-                .allSatisfy(leaf ->
-                        assertThat(leaf.getCode()).startsWith(leaf.parentCode() + "_"));
+        Category root = categoryRepository.findByCode("LEGACY").orElseThrow();
+        Category leaf = categoryRepository.findByCode("LEGACY_ONE").orElseThrow();
+        assertThat(root.isActive()).isFalse();
+        // 부모만 내려가고 자식이 남으면 소속 없는 중분류가 목록에 뜬다.
+        assertThat(leaf.isActive()).isFalse();
     }
+
 }
