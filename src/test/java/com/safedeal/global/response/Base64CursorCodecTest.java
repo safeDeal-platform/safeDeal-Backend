@@ -48,20 +48,25 @@ class Base64CursorCodecTest {
     @Test
     @DisplayName("포맷 버전이 다른 커서는 400으로 거부한다")
     void wrongVersionIsRejected() {
+        // keyset 값을 일부러 채운다. 비워두면 바로 아래 keyset 검사에도 동시에 걸려,
+        // 버전 검사가 통째로 사라져도 이 테스트가 통과해 버린다.
+        // 메시지도 "지원하지 않는"으로 특정한다 — 다른 거부 분기는 "잘못된 커서입니다"라서
+        // "커서"만 보면 어느 분기가 실행됐는지 구분되지 않는다.
         assertThatThrownBy(() -> codec.decode(cursorOf("""
-                {"version":99,"sort":"createdAt,desc","lastCreatedAt":null,
-                 "lastId":null,"filterFingerprint":null,"issuedAt":null}""")))
+                {"version":99,"sort":"createdAt,desc","lastCreatedAt":"2026-09-01T00:00:00Z",
+                 "lastId":1,"filterFingerprint":null,"issuedAt":null}""")))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("커서");
+                .hasMessageContaining("지원하지 않는");
     }
 
     @Test
     @DisplayName("keyset 기준값이 빠진 커서는 400으로 거부한다 — 없으면 조건이 통째로 빠진다")
     void missingKeysetFieldsAreRejected() {
+        // 버전은 올바르게 둬서 keyset 검사 하나만 걸리게 한다.
         assertThatThrownBy(() -> codec.decode(cursorOf("""
                 {"version":1,"sort":"createdAt,desc","lastCreatedAt":null,
                  "lastId":null,"filterFingerprint":null,"issuedAt":null}""")))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("커서");
+                .hasMessageContaining("잘못된 커서");
     }
 }
