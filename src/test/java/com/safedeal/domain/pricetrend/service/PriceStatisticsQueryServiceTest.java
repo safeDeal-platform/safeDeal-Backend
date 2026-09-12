@@ -35,7 +35,7 @@ class PriceStatisticsQueryServiceTest {
     @InjectMocks
     PriceStatisticsQueryService priceStatisticsQueryService;
 
-    private static final String CATEGORY = "DIGITAL_MOBILE";
+    private static final String CATEGORY = "DIGITAL_PHONE";
 
     private static PriceStatistics stat(int sampleCount) {
         return PriceStatistics.builder()

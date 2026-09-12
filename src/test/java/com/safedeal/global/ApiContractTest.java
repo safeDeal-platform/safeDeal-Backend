@@ -1,18 +1,13 @@
 package com.safedeal.global;
 
+import com.safedeal.testsupport.IntegrationTestSupport;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.not;
@@ -29,34 +24,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 세 도메인 담당자가 전부 의존하는 계약이다. 이 테스트가 깨진다 = 계약이 바뀌었다는 뜻이므로,
  * 고치기 전에 반드시 팀에 공유할 것.
  *
- * 프로파일이 (local, test)인 이유: local은 개발 인증 필터를 켜기 위해(아직 JWT가 없어
- * 인증된 상태를 만들 다른 방법이 없다), test는 logback의 Loki 전송을 끄기 위해.
+ * 컨테이너·프로파일 설정은 IntegrationTestSupport에 있다.
  */
-@SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles({"local", "test"})
-@Testcontainers
-class ApiContractTest {
+class ApiContractTest extends IntegrationTestSupport {
 
     private static final String DEV_USER = "X-Dev-User-Id";
 
-    @Container
-    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0.36");
-
-    // Redis가 없으면 actuator 종합 health가 DOWN(503)이 된다 — health 지표에 Redis가
-    // 포함되기 때문. "health는 공개다"라는 보안 계약을 검증하려면 의존성도 살아 있어야 한다.
-    @Container
-    static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.2-alpine")
-            .withExposedPorts(6379);
-
-    @DynamicPropertySource
-    static void infra(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
-        registry.add("spring.datasource.username", MYSQL::getUsername);
-        registry.add("spring.datasource.password", MYSQL::getPassword);
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
-    }
 
     @Autowired
     MockMvc mockMvc;
@@ -93,6 +67,25 @@ class ApiContractTest {
         mockMvc.perform(get("/api/v1/listings"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("C002"));
+    }
+
+    @Test
+    @DisplayName("카테고리 목록은 화이트리스트 — 인증 없이 조회된다")
+    void categories_isWhitelisted() throws Exception {
+        mockMvc.perform(get("/api/categories"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+    }
+
+    @Test
+    @DisplayName("카테고리는 조회만 열려 있다 — 인증 없는 쓰기는 통과하지 않는다")
+    void categories_writeIsNotWhitelisted() throws Exception {
+        // permitAll이 GET으로 한정돼 있어 시큐리티가 매핑보다 먼저 걸러 401이 나간다.
+        // 405를 함께 허용하면 permitAll에서 GET 한정이 빠져도(=쓰기가 열려도) 매핑이 없어
+        // 405가 나므로 테스트가 통과해 버린다. 그래서 401만 단언한다.
+        mockMvc.perform(post("/api/categories")
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
     }
 
     // ── requestId ─────────────────────────────────────────────

@@ -35,14 +35,14 @@ class PriceStatisticsControllerTest {
     @DisplayName("categoryCode·period로 조회하면 success/data 형식으로 시세를 내려준다")
     void getPriceStatistics_sufficient() throws Exception {
         PriceStatisticsResponse body = new PriceStatisticsResponse(
-                "DIGITAL_MOBILE", "7d", 42, 900000, 700000, 1200000,
+                "DIGITAL_PHONE", "7d", 42, 900000, 700000, 1200000,
                 Instant.parse("2026-08-16T00:00:00Z"), null);
-        when(priceStatisticsQueryService.getPriceStatistics("DIGITAL_MOBILE", "7d")).thenReturn(body);
+        when(priceStatisticsQueryService.getPriceStatistics("DIGITAL_PHONE", "7d")).thenReturn(body);
 
-        mockMvc.perform(get("/api/price-statistics").param("categoryCode", "DIGITAL_MOBILE").param("period", "7d"))
+        mockMvc.perform(get("/api/price-statistics").param("categoryCode", "DIGITAL_PHONE").param("period", "7d"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.categoryCode").value("DIGITAL_MOBILE"))
+                .andExpect(jsonPath("$.data.categoryCode").value("DIGITAL_PHONE"))
                 .andExpect(jsonPath("$.data.period").value("7d"))
                 .andExpect(jsonPath("$.data.medianPrice").value(900000))
                 .andExpect(jsonPath("$.data.message").doesNotExist());
@@ -51,13 +51,13 @@ class PriceStatisticsControllerTest {
     @Test
     @DisplayName("period를 생략하면 기본값 7d로 서비스를 호출한다")
     void getPriceStatistics_defaultPeriod() throws Exception {
-        when(priceStatisticsQueryService.getPriceStatistics(eq("DIGITAL_MOBILE"), eq("7d")))
-                .thenReturn(PriceStatisticsResponse.insufficient("DIGITAL_MOBILE", "7d", 0));
+        when(priceStatisticsQueryService.getPriceStatistics(eq("DIGITAL_PHONE"), eq("7d")))
+                .thenReturn(PriceStatisticsResponse.insufficient("DIGITAL_PHONE", "7d", 0));
 
-        mockMvc.perform(get("/api/price-statistics").param("categoryCode", "DIGITAL_MOBILE"))
+        mockMvc.perform(get("/api/price-statistics").param("categoryCode", "DIGITAL_PHONE"))
                 .andExpect(status().isOk());
 
-        verify(priceStatisticsQueryService).getPriceStatistics("DIGITAL_MOBILE", "7d");
+        verify(priceStatisticsQueryService).getPriceStatistics("DIGITAL_PHONE", "7d");
     }
 
     @Test
