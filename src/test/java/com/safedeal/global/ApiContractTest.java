@@ -11,6 +11,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -73,6 +74,30 @@ class ApiContractTest extends IntegrationTestSupport {
     @DisplayName("매물 등록은 화이트리스트가 아니다 — 인증 없이 401")
     void listingCreate_requiresAuth() throws Exception {
         mockMvc.perform(post("/api/listings").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("C005"));
+    }
+
+    @Test
+    @DisplayName("내 찜 목록은 화이트리스트가 아니다 — 인증 없이 401")
+    void myFavorites_requiresAuth() throws Exception {
+        mockMvc.perform(get("/api/users/me/favorites"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("C005"));
+    }
+
+    @Test
+    @DisplayName("찜 등록은 화이트리스트가 아니다 — 매물 상세가 공개라고 하위 경로까지 열리지 않는다")
+    void favoriteAdd_requiresAuth() throws Exception {
+        mockMvc.perform(post("/api/listings/01J3A/favorite"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("C005"));
+    }
+
+    @Test
+    @DisplayName("찜 해제도 인증이 필요하다 — 메서드 단위 매처가 추가될 때 뚫리는 쪽이다")
+    void favoriteRemove_requiresAuth() throws Exception {
+        mockMvc.perform(delete("/api/listings/01J3A/favorite"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("C005"));
     }
