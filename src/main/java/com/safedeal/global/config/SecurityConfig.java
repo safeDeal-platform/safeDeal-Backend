@@ -3,6 +3,7 @@ package com.safedeal.global.config;
 import com.safedeal.global.security.ApiAccessDeniedHandler;
 import com.safedeal.global.security.ApiAuthenticationEntryPoint;
 import com.safedeal.global.security.DevAuthenticationFilter;
+import com.safedeal.global.security.JwtAuthenticationFilter;
 import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -14,6 +15,8 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.savedrequest.NullRequestCache;
@@ -34,14 +37,24 @@ public class SecurityConfig {
     private final ApiAccessDeniedHandler apiAccessDeniedHandler;
     private final Environment environment;
     private final ObjectProvider<DevAuthenticationFilter> devAuthenticationFilterProvider;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     // 인증 없이 여는 경로. 도메인이 늘어나도 여기 한 곳만 보면 전체 화이트리스트를 알 수 있다.
 
-    // 회원가입/로그인/토큰 재발급 - 아직 컨트롤러는 없지만 경로를 미리 예약해둔다.
+    // 토큰이 아직 없거나(가입·로그인) 이미 만료된 상태에서도 호출돼야 하는 인증 API.
+    // logout이 여기 있는 이유: access가 만료된 뒤에도 로그아웃은 돼야 한다(쿠키 삭제가 목적).
+    // email/verify가 공개인 이유: 메일 링크를 누르는 브라우저가 로그인 상태라는 보장이 없다.
+    // 반대로 재발송(email/verify/resend)은 공개하지 않는다 - 열거 통로이자 메일 발송기가 된다.
+    // 주의: 재발송은 공개 경로 email/verify의 하위 경로다. 지금은 정확 매칭이라 안 걸리지만,
+    // 누가 여기를 "/api/auth/email/verify/**" 로 넓히면 재발송이 조용히 공개된다 - 넓히지 말 것.
     private static final String[] AUTH_PUBLIC_POST_ENDPOINTS = {
-            "/api/v1/auth/signup",
-            "/api/v1/auth/login",
-            "/api/v1/auth/reissue",
+            "/api/auth/signup",
+            "/api/auth/login",
+            "/api/auth/reissue",
+            "/api/auth/logout",
+            "/api/auth/email/verify",
+            "/api/auth/password/reset-request",
+            "/api/auth/password/reset",
     };
 
     // 매물 목록 공개 조회. 쓰기 메서드(POST/PATCH/DELETE)는 이 매처에 포함하지 않는다.
@@ -121,6 +134,12 @@ public class SecurityConfig {
                     auth.anyRequest().authenticated();
                 });
 
+        // JWT 인증 필터를 dev 필터보다 <b>먼저</b> 등록한다. 같은 앵커에 addFilterBefore를 여러 번
+        // 부르면 등록한 순서대로 실행되므로, 순서가 바뀌면 X-Dev-User-Id 헤더가 실제 토큰보다
+        // 앞서 principal을 채워버린다. dev 필터는 이미 인증된 요청을 건너뛰므로 이 순서에서
+        // 진짜 토큰이 항상 이긴다.
+        http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+
         // 로컬 전용 임시 인증 필터. local + app.security.dev-auth-enabled=true 일 때만 빈이
         // 존재하므로(DevAuthenticationFilter 참고) 그 외에는 아래 if를 타지 않는다.
         DevAuthenticationFilter devAuthenticationFilter = devAuthenticationFilterProvider.getIfAvailable();
@@ -128,10 +147,18 @@ public class SecurityConfig {
             http.addFilterBefore(devAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         }
 
-        // 실제 JWT 인증 필터는 인증 담당자가 여기에 추가한다:
-        // http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
-
         return http.build();
+    }
+
+    /**
+     * 비밀번호 해시 알고리즘 (정책 NFR-4 BCrypt).
+     *
+     * 강도를 명시하지 않고 기본값(10)을 쓴다 — 올리면 로그인 응답이 그만큼 느려지므로 실제
+     * 하드웨어에서 측정한 뒤 조정할 값이지, 지금 감으로 정할 값이 아니다.
+     */
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
     }
 
     @Bean
