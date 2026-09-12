@@ -97,6 +97,11 @@ app:
     exposed-headers: X-Request-Id
     allow-credentials: ${CORS_ALLOW_CREDENTIALS:false}
     max-age: 3600
+  # 검증 구간 on/off. 검증 도메인이 아직 없어 기본은 꺼둔다 — 켜면 매물 등록이
+  # PENDING_VERIFICATION에서 멈춰 아무도 매물을 공개할 수 없다.
+  verification:
+    enabled: ${VERIFICATION_ENABLED:false}
+
   security:
     dev-auth-enabled: false
   kafka:

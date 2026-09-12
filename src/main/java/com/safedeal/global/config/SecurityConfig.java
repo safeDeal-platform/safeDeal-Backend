@@ -49,7 +49,10 @@ public class SecurityConfig {
     // 할 조회가 같은 prefix 아래 추가되면 검토 없이 자동 공개되기 때문이다. 상세 조회 등
     // 공개가 필요한 경로는 컨트롤러를 추가할 때 정확한 패턴으로 여기에 함께 등록한다.
     private static final String[] LISTINGS_PUBLIC_GET_ENDPOINTS = {
-            "/api/v1/listings",
+            "/api/listings",
+            // 상세는 public_id 한 칸만 연다. /** 로 열면 나중에 /mine, /{id}/buyers 같은
+            // 비공개 조회가 같은 prefix 아래 추가될 때 검토 없이 자동 공개된다.
+            "/api/listings/{publicId}",
     };
 
     // 헬스체크만 공개. prometheus/info는 운영 지표 노출이라 인증 뒤로 둔다.
@@ -62,6 +65,13 @@ public class SecurityConfig {
     // 집계 트리거(/api/admin/price-statistics/**)는 ADMIN 전용이라 anyRequest().authenticated()에 남긴다.
     private static final String[] PRICE_STATISTICS_PUBLIC_GET_ENDPOINTS = {
             "/api/price-statistics",
+    };
+
+    // 카테고리 목록은 비로그인 허용 — 매물 등록 화면과 검색 필터가 로그인 전에도 이 목록을
+    // 받아야 한다. 조회 전용이고 관리자용 카테고리 편집 API는 별도 경로로 만들 예정이라
+    // 하위 경로를 /** 로 열지 않는다.
+    private static final String[] CATEGORY_PUBLIC_GET_ENDPOINTS = {
+            "/api/categories",
     };
 
     // springdoc(swagger-ui)는 local 프로파일에서만 화이트리스트에 추가한다(아래 참고).
@@ -95,6 +105,7 @@ public class SecurityConfig {
                     auth.requestMatchers(HttpMethod.GET, LISTINGS_PUBLIC_GET_ENDPOINTS).permitAll();
                     auth.requestMatchers(HttpMethod.GET, ACTUATOR_PUBLIC_GET_ENDPOINTS).permitAll();
                     auth.requestMatchers(HttpMethod.GET, PRICE_STATISTICS_PUBLIC_GET_ENDPOINTS).permitAll();
+                    auth.requestMatchers(HttpMethod.GET, CATEGORY_PUBLIC_GET_ENDPOINTS).permitAll();
 
                     // WebSocket(/ws/**) 화이트리스트는 의도적으로 넣지 않았다. 아직 endpoint도
                     // STOMP CONNECT 인증도 없는 상태에서 경로를 미리 열어두면, 나중에 그 아래

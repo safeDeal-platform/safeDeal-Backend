@@ -2,18 +2,11 @@ package com.safedeal.domain.pricetrend.repository;
 
 import com.safedeal.domain.pricetrend.entity.PriceStatistics;
 import com.safedeal.domain.pricetrend.entity.StatPeriod;
+import com.safedeal.testsupport.IntegrationTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.MySQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -29,32 +22,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 프로젝트 표준대로 Testcontainers MySQL을 쓴다(H2 대체 금지). local 프로파일이라 스키마는
  * 엔티티대로 create-drop. Docker 필요 — CI에서 실행. 각 테스트는 @Transactional로 롤백된다.
  */
-@SpringBootTest
-@ActiveProfiles({"local", "test"})
 @Transactional
-@Testcontainers
-class PriceStatisticsRepositoryTest {
-
-    @Container
-    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0.36");
-
-    @Container
-    static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.2-alpine")
-            .withExposedPorts(6379);
-
-    @DynamicPropertySource
-    static void infra(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
-        registry.add("spring.datasource.username", MYSQL::getUsername);
-        registry.add("spring.datasource.password", MYSQL::getPassword);
-        registry.add("spring.data.redis.host", REDIS::getHost);
-        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
-    }
+class PriceStatisticsRepositoryTest extends IntegrationTestSupport {
 
     @Autowired
     PriceStatisticsRepository priceStatisticsRepository;
 
-    private static final String CATEGORY = "DIGITAL_MOBILE";
+    private static final String CATEGORY = "DIGITAL_PHONE";
 
     private PriceStatistics stat(StatPeriod period, LocalDate start, LocalDate end, Instant calculatedAt) {
         return PriceStatistics.builder()
