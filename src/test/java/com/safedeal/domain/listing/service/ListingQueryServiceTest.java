@@ -181,6 +181,36 @@ class ListingQueryServiceTest {
     }
 
     @Test
+    @DisplayName("비활성 중분류로 거르면 매물을 내보내지 않는다 — code를 직접 찍어도 우회되지 않는다")
+    void inactiveLeafCategoryYieldsNoListing() {
+        Category retired = leaf(10L);
+        retired.deactivate();
+        when(categoryRepository.findByCode("DIGITAL_ACC")).thenReturn(Optional.of(retired));
+        when(listingRepository.findPublicPage(any())).thenReturn(List.of());
+
+        service().getListings(null, null, "DIGITAL_ACC", null, null, null, null);
+
+        // 대분류로 걸렀을 때 비활성 자식이 빠지는 것과 같은 결과여야 한다. 그 id를 그대로 넘기면
+        // 예전 링크·북마크로 들어온 요청에만 내려간 카테고리가 계속 열린다.
+        // 빈 목록이 아니라 -1L인 이유는 keepsFilterWhenRootHasNoActiveLeaf와 같다.
+        assertThat(captureCondition().categoryIds()).isNotEmpty().containsExactly(-1L);
+    }
+
+    @Test
+    @DisplayName("활성 중분류는 그대로 넘긴다 — 위 비활성 검사가 전부를 막아버리지 않는다")
+    void activeLeafCategoryIsNotFilteredOut() {
+        Category living = leaf(11L);
+        living.deactivate();
+        living.activate();
+        when(categoryRepository.findByCode("DIGITAL_PHONE")).thenReturn(Optional.of(living));
+        when(listingRepository.findPublicPage(any())).thenReturn(List.of());
+
+        service().getListings(null, null, "DIGITAL_PHONE", null, null, null, null);
+
+        assertThat(captureCondition().categoryIds()).containsExactly(11L);
+    }
+
+    @Test
     @DisplayName("대분류로 거르면 하위 중분류로 펼쳐서 넘긴다 — 매물은 중분류에만 달린다")
     void expandsRootCategoryToItsLeaves() {
         Category digital = root(1L);

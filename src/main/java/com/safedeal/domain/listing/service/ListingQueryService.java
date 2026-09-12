@@ -125,6 +125,15 @@ public class ListingQueryService {
                 .orElseThrow(() -> new BusinessException(
                         CommonErrorCode.INVALID_INPUT, "존재하지 않는 카테고리입니다."));
         if (category.isLeaf()) {
+            if (!category.isActive()) {
+                // 비활성 중분류의 매물은 목록에 내보내지 않는다. 대분류로 걸렀을 때 비활성 자식이
+                // 빠지는 것(아래 findByParentIdAndActiveTrue)과 결과가 같아야 하기 때문이다 —
+                // 그러지 않으면 "위에서 찾으면 없고 code를 직접 찍으면 나오는" 상태가 된다.
+                // 400이 아니라 빈 결과인 이유: code 자체는 여전히 유효하고, 예전 링크·북마크로
+                // 들어온 요청을 에러로 돌려보낼 이유가 없다. 등록(ListingCommandService)은
+                // 새로 다는 것을 막아야 하므로 400이 맞고, 조회와 판단이 갈리는 것이 정상이다.
+                return List.of(-1L);
+            }
             return List.of(category.getId());
         }
         List<Category> children = categoryRepository.findByParentIdAndActiveTrue(category.getId());
