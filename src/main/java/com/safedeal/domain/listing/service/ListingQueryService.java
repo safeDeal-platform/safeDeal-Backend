@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -106,6 +107,10 @@ public class ListingQueryService {
      * 처리하므로({@code ListingQueryRepositoryImpl}의 isBlank 검사), 지문이 둘을 가르면 결과가 같은
      * 요청을 거부하게 된다. 값의 앞뒤 공백은 자르지 않는다 — 리포지토리가 그대로 비교해 결과가 달라진다.
      *
+     * <p>문자열 필터는 대문자로 통일한 뒤 넣는다. DB collation이 {@code utf8mb4_0900_ai_ci}(대소문자 무시,
+     * docker-compose와 정책 동일)라 {@code DIGITAL_PHONE}과 {@code digital_phone}은 같은 행으로 풀려
+     * 결과가 같다. 지문만 둘을 가르면 결과가 같은 다음 페이지 요청을 거부하게 된다.
+     *
      * <p>커서는 비밀이 아니고 클라이언트가 지문을 고쳐 보낼 수도 있다. 이것은 공격 방어가 아니라
      * "필터를 바꾸면서 커서를 초기화하지 않은" 실수를 드러내는 장치다 — 고쳐 보내봐야 얻는 것은
      * 이미 공개된 매물 목록뿐이다.
@@ -119,7 +124,7 @@ public class ListingQueryService {
                 categoryCode, regionSido, regionSigungu,
                 minPrice == null ? null : minPrice.toString(),
                 maxPrice == null ? null : maxPrice.toString()}) {
-            String normalized = (value == null || value.isBlank()) ? "" : value;
+            String normalized = (value == null || value.isBlank()) ? "" : value.toUpperCase(Locale.ROOT);
             canonical.append(normalized.length()).append(':').append(normalized);
         }
         try {

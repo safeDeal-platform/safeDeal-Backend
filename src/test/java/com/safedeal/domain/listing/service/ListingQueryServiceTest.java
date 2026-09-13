@@ -138,7 +138,8 @@ class ListingQueryServiceTest {
         assertThatThrownBy(() ->
                 service().getListings("cursor", null, null, null, null, null, null))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("커서");
+                // "커서"만 보면 필터 지문 거부("…이 커서를 사용할 수 없습니다")와도 겹쳐 사유를 가르지 못한다.
+                .hasMessageContaining("잘못된 커서입니다");
         verify(listingRepository, never()).findPublicPage(any());
     }
 
@@ -177,37 +178,79 @@ class ListingQueryServiceTest {
                         "DIGITAL_PHONE", "서울특별시", "강남구", 1_000, 50_000));
     }
 
-    @Test
-    @DisplayName("필터를 바꾼 채 옛 커서를 쓰면 거부한다 — 그대로 쓰면 경계보다 최신인 매물이 조용히 빠진다")
-    void rejectsCursorWhenFiltersChanged() {
-        // 스마트폰으로 검색해 받은 커서를 태블릿 검색에 그대로 붙인 상황.
+    /**
+     * 기준 필터(스마트폰 · 서울 강남구 · 1천~5만 원)로 발급된 커서를 돌려주도록 코덱을 맞춘다.
+     * 아래 거부 테스트들은 이 기준에서 <b>필드 하나씩만</b> 바꿔, 지문 계산에서 어느 필드가 빠져도
+     * 그 필드의 테스트가 깨지게 한다. 지문을 같은 함수로 계산해 비교하는 테스트만으로는 함수가 필드를
+     * 빠뜨려도 기대값도 똑같이 틀려 통과하므로, "거부되는가"를 필드마다 직접 확인해야 한다.
+     */
+    private void givenCursorIssuedForBaseFilter() {
         when(cursorCodec.decode("cursor")).thenReturn(new CursorPayload(
                 Base64CursorCodec.VERSION, ListingQueryService.SORT_KEY,
                 Instant.parse("2026-09-10T00:00:00Z"), 7L,
-                ListingQueryService.filterFingerprint("DIGITAL_PHONE", null, null, null, null),
+                ListingQueryService.filterFingerprint("DIGITAL_PHONE", "서울특별시", "강남구", 1_000, 50_000),
                 Instant.now()));
+    }
 
-        assertThatThrownBy(() ->
-                service().getListings("cursor", null, "DIGITAL_TABLET", null, null, null, null))
+    private void assertRejectedAsFilterChanged(Runnable request) {
+        assertThatThrownBy(request::run)
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("검색 조건");
         verify(listingRepository, never()).findPublicPage(any());
     }
 
     @Test
-    @DisplayName("가격 조건만 바뀌어도 거부한다 — 숫자 필터도 지문에 들어간다")
-    void rejectsCursorWhenPriceFilterChanged() {
-        when(cursorCodec.decode("cursor")).thenReturn(new CursorPayload(
-                Base64CursorCodec.VERSION, ListingQueryService.SORT_KEY,
-                Instant.parse("2026-09-10T00:00:00Z"), 7L,
-                ListingQueryService.filterFingerprint(null, null, null, 1_000, null),
-                Instant.now()));
+    @DisplayName("카테고리를 바꾼 채 옛 커서를 쓰면 거부한다 — 그대로 쓰면 경계보다 최신인 매물이 조용히 빠진다")
+    void rejectsCursorWhenCategoryChanged() {
+        givenCursorIssuedForBaseFilter();
+        // 스마트폰으로 검색해 받은 커서를 태블릿 검색에 그대로 붙인 상황.
+        assertRejectedAsFilterChanged(() -> service().getListings(
+                "cursor", null, "DIGITAL_TABLET", "서울특별시", "강남구", 1_000, 50_000));
+    }
 
-        assertThatThrownBy(() ->
-                service().getListings("cursor", null, null, null, null, 2_000, null))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("검색 조건");
-        verify(listingRepository, never()).findPublicPage(any());
+    @Test
+    @DisplayName("시·도만 바뀌어도 거부한다")
+    void rejectsCursorWhenRegionSidoChanged() {
+        givenCursorIssuedForBaseFilter();
+        assertRejectedAsFilterChanged(() -> service().getListings(
+                "cursor", null, "DIGITAL_PHONE", "부산광역시", "강남구", 1_000, 50_000));
+    }
+
+    @Test
+    @DisplayName("시·군·구만 바뀌어도 거부한다")
+    void rejectsCursorWhenRegionSigunguChanged() {
+        givenCursorIssuedForBaseFilter();
+        assertRejectedAsFilterChanged(() -> service().getListings(
+                "cursor", null, "DIGITAL_PHONE", "서울특별시", "서초구", 1_000, 50_000));
+    }
+
+    @Test
+    @DisplayName("최소 가격만 바뀌어도 거부한다")
+    void rejectsCursorWhenMinPriceChanged() {
+        givenCursorIssuedForBaseFilter();
+        assertRejectedAsFilterChanged(() -> service().getListings(
+                "cursor", null, "DIGITAL_PHONE", "서울특별시", "강남구", 2_000, 50_000));
+    }
+
+    @Test
+    @DisplayName("최대 가격만 바뀌어도 거부한다")
+    void rejectsCursorWhenMaxPriceChanged() {
+        givenCursorIssuedForBaseFilter();
+        assertRejectedAsFilterChanged(() -> service().getListings(
+                "cursor", null, "DIGITAL_PHONE", "서울특별시", "강남구", 1_000, 60_000));
+    }
+
+    @Test
+    @DisplayName("카테고리 code의 대소문자만 다르면 거부하지 않는다 — DB가 대소문자를 무시해 결과가 같다")
+    void acceptsCursorWhenOnlyCategoryCaseDiffers() {
+        givenCursorIssuedForBaseFilter();
+        when(categoryRepository.findByCode("digital_phone")).thenReturn(Optional.of(leaf(10L)));
+        when(listingRepository.findPublicPage(any())).thenReturn(List.of());
+
+        // collation utf8mb4_0900_ai_ci 에서 "digital_phone"은 DIGITAL_PHONE 행으로 풀린다.
+        service().getListings("cursor", null, "digital_phone", "서울특별시", "강남구", 1_000, 50_000);
+
+        assertThat(captureCondition().lastId()).isEqualTo(7L);
     }
 
     @Test
