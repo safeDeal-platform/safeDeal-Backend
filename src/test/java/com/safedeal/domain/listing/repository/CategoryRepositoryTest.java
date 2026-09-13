@@ -55,6 +55,22 @@ class CategoryRepositoryTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("code 조회는 대소문자를 무시한다 — 목록 커서의 필터 지문이 대문자 통일에 기대는 전제")
+    void findByCodeIgnoresCase() {
+        // ListingQueryService.filterFingerprint는 categoryCode를 대문자로 통일한 뒤 지문을 만든다.
+        // DB(utf8mb4_0900_ai_ci)가 "digital"도 DIGITAL 행으로 풀어준다는 전제가 깨지면(컬럼 collation을
+        // _bin으로 바꾸는 등) 지문은 같은데 결과는 다른 요청이 생긴다. 서비스 테스트는 이 조회를 목으로
+        // 흉내 내므로 전제 자체는 실제 DB인 여기서만 확인된다.
+        categoryRepository.saveAndFlush(Category.root("DIGITAL", "디지털기기", 1));
+
+        assertThat(categoryRepository.findByCode("digital"))
+                .isPresent()
+                .get()
+                .extracting(Category::getCode)
+                .isEqualTo("DIGITAL");
+    }
+
+    @Test
     @DisplayName("code로 찾는다")
     void findByCode() {
         categoryRepository.saveAndFlush(Category.root("DIGITAL", "디지털기기", 1));

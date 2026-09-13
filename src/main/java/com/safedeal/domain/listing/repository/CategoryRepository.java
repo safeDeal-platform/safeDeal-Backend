@@ -18,4 +18,7 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
      * 서비스가 다시 정렬하지 않는다.
      */
     List<Category> findAllByOrderByDepthAscSortOrderAsc();
+
+    /** 대분류로 검색했을 때 펼칠 하위 중분류. 비활성 분류에는 새 매물을 달 수 없으므로 제외한다. */
+    List<Category> findByParentIdAndActiveTrue(Long parentId);
 }

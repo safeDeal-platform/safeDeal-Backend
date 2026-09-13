@@ -62,7 +62,10 @@ public class SecurityConfig {
     // 할 조회가 같은 prefix 아래 추가되면 검토 없이 자동 공개되기 때문이다. 상세 조회 등
     // 공개가 필요한 경로는 컨트롤러를 추가할 때 정확한 패턴으로 여기에 함께 등록한다.
     private static final String[] LISTINGS_PUBLIC_GET_ENDPOINTS = {
-            "/api/v1/listings",
+            "/api/listings",
+            // 상세는 public_id 한 칸만 연다. /** 로 열면 나중에 /mine, /{id}/buyers 같은
+            // 비공개 조회가 같은 prefix 아래 추가될 때 검토 없이 자동 공개된다.
+            "/api/listings/{publicId}",
     };
 
     // 헬스체크만 공개. prometheus/info는 운영 지표 노출이라 인증 뒤로 둔다.

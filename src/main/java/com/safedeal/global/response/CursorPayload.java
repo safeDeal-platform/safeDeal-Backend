@@ -11,7 +11,8 @@ import java.time.Instant;
  * @param lastCreatedAt     이전 페이지 마지막 항목의 생성 시각 — keyset 조건의 기준값.
  * @param lastId            이전 페이지 마지막 항목의 ID — created_at 동률일 때 tie-break 기준값.
  * @param filterFingerprint 이 커서가 발급될 때 적용된 필터 조건의 지문(해시 등). 커서 재사용 시
- *                          필터가 달라졌으면 거부하기 위한 값 — 구체적 계산 방식은 미정.
+ *                          필터가 달라졌으면 거부하기 위한 값 — 계산 방식은 커서를 쓰는 쪽이 정한다
+ *                          (매물 목록: {@code ListingQueryService.filterFingerprint}).
  * @param issuedAt          커서 발급 시각. 커서 만료 정책(TTL 등)을 도입할 때 사용.
  */
 public record CursorPayload(
