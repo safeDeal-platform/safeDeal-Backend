@@ -17,8 +17,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 
 @Service
@@ -50,6 +55,7 @@ public class ListingQueryService {
 
         int pageSize = resolveSize(size);
         validatePriceRange(minPrice, maxPrice);
+        String fingerprint = filterFingerprint(categoryCode, regionSido, regionSigungu, minPrice, maxPrice);
 
         Instant lastCreatedAt = null;
         Long lastId = null;
@@ -57,6 +63,13 @@ public class ListingQueryService {
             CursorPayload payload = cursorCodec.decode(cursor);
             if (!SORT_KEY.equals(payload.sort())) {
                 throw new BusinessException(CommonErrorCode.INVALID_INPUT, "잘못된 커서입니다.");
+            }
+            // 커서의 경계(createdAt, id)는 그 커서를 발급한 검색 조건 안에서만 의미가 있다. 조건을 바꾼 채
+            // 옛 커서를 쓰면 새 조건과 옛 경계가 따로 걸려, 경계보다 최신인 새 조건의 매물이 에러 없이
+            // 통째로 빠진다. 조용히 빠지는 것보다 거부해서 클라이언트가 첫 페이지부터 다시 부르게 한다.
+            if (!fingerprint.equals(payload.filterFingerprint())) {
+                throw new BusinessException(CommonErrorCode.INVALID_INPUT,
+                        "검색 조건이 바뀌어 이 커서를 사용할 수 없습니다. 첫 페이지부터 다시 조회하세요.");
             }
             lastCreatedAt = payload.lastCreatedAt();
             lastId = payload.lastId();
@@ -80,9 +93,44 @@ public class ListingQueryService {
             Listing last = page.get(page.size() - 1);
             nextCursor = cursorCodec.encode(new CursorPayload(
                     Base64CursorCodec.VERSION, SORT_KEY,
-                    last.getCreatedAt(), last.getId(), null, Instant.now()));
+                    last.getCreatedAt(), last.getId(), fingerprint, Instant.now()));
         }
         return new CursorResponse<>(items, nextCursor, hasNext);
+    }
+
+    /**
+     * 목록 필터의 지문. 커서에 실어, 다음 요청의 필터가 발급 때와 같은지 비교한다.
+     *
+     * <p><b>조회 결과를 가르는 입력만</b> 넣는다. size는 빠진다 — 한 페이지 개수만 바뀌어도 경계는
+     * 어긋나지 않는다. 빈 문자열은 null과 같게 취급한다 — 리포지토리가 둘을 똑같이 "필터 없음"으로
+     * 처리하므로({@code ListingQueryRepositoryImpl}의 isBlank 검사), 지문이 둘을 가르면 결과가 같은
+     * 요청을 거부하게 된다. 값의 앞뒤 공백은 자르지 않는다 — 리포지토리가 그대로 비교해 결과가 달라진다.
+     *
+     * <p>커서는 비밀이 아니고 클라이언트가 지문을 고쳐 보낼 수도 있다. 이것은 공격 방어가 아니라
+     * "필터를 바꾸면서 커서를 초기화하지 않은" 실수를 드러내는 장치다 — 고쳐 보내봐야 얻는 것은
+     * 이미 공개된 매물 목록뿐이다.
+     */
+    static String filterFingerprint(String categoryCode, String regionSido, String regionSigungu,
+                                    Integer minPrice, Integer maxPrice) {
+        // 값마다 길이를 앞에 붙여 이어 붙인다. 구분자만 쓰면 값 안에 구분자가 들어왔을 때
+        // ("a|b","c")와 ("a","b|c")처럼 서로 다른 조건이 같은 문자열이 된다.
+        StringBuilder canonical = new StringBuilder();
+        for (String value : new String[]{
+                categoryCode, regionSido, regionSigungu,
+                minPrice == null ? null : minPrice.toString(),
+                maxPrice == null ? null : maxPrice.toString()}) {
+            String normalized = (value == null || value.isBlank()) ? "" : value;
+            canonical.append(normalized.length()).append(':').append(normalized);
+        }
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(canonical.toString().getBytes(StandardCharsets.UTF_8));
+            // 우연한 충돌만 피하면 되므로 앞 12바이트(URL-safe 16자)로 커서 길이를 줄인다.
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(Arrays.copyOf(hash, 12));
+        } catch (NoSuchAlgorithmException e) {
+            // SHA-256은 모든 자바 런타임이 반드시 제공해야 하는 알고리즘이라 여기 올 수 없다.
+            throw new IllegalStateException("SHA-256을 사용할 수 없습니다", e);
+        }
     }
 
     /**

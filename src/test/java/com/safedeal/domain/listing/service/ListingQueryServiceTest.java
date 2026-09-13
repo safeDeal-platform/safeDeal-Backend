@@ -146,8 +146,10 @@ class ListingQueryServiceTest {
     @DisplayName("커서의 생성시각·id가 조회 조건으로 넘어간다")
     void passesCursorKeysetToRepository() {
         Instant last = Instant.parse("2026-09-01T00:00:00Z");
+        // 필터 없이 발급된 커서를 필터 없이 다시 쓰는 정상 흐름이다.
         when(cursorCodec.decode("cursor")).thenReturn(new CursorPayload(
-                Base64CursorCodec.VERSION, ListingQueryService.SORT_KEY, last, 7L, null, Instant.now()));
+                Base64CursorCodec.VERSION, ListingQueryService.SORT_KEY, last, 7L,
+                ListingQueryService.filterFingerprint(null, null, null, null, null), Instant.now()));
         when(listingRepository.findPublicPage(any())).thenReturn(List.of());
 
         service().getListings("cursor", null, null, null, null, null, null);
@@ -155,6 +157,68 @@ class ListingQueryServiceTest {
         ListingSearchCondition condition = captureCondition();
         assertThat(condition.lastCreatedAt()).isEqualTo(last);
         assertThat(condition.lastId()).isEqualTo(7L);
+    }
+
+    @Test
+    @DisplayName("다음 커서에는 이번 요청의 필터 지문이 실린다")
+    void issuedCursorCarriesFilterFingerprint() {
+        when(categoryRepository.findByCode("DIGITAL_PHONE")).thenReturn(Optional.of(leaf(10L)));
+        when(listingRepository.findPublicPage(any())).thenReturn(listings(4));
+        when(cursorCodec.encode(any())).thenReturn("next");
+
+        service().getListings(null, 3, "DIGITAL_PHONE", "서울특별시", "강남구", 1_000, 50_000);
+
+        ArgumentCaptor<CursorPayload> captor = ArgumentCaptor.forClass(CursorPayload.class);
+        verify(cursorCodec).encode(captor.capture());
+        // null이 실리면 다음 요청의 비교가 전부 어긋나 정상 흐름까지 거부된다.
+        assertThat(captor.getValue().filterFingerprint())
+                .isNotNull()
+                .isEqualTo(ListingQueryService.filterFingerprint(
+                        "DIGITAL_PHONE", "서울특별시", "강남구", 1_000, 50_000));
+    }
+
+    @Test
+    @DisplayName("필터를 바꾼 채 옛 커서를 쓰면 거부한다 — 그대로 쓰면 경계보다 최신인 매물이 조용히 빠진다")
+    void rejectsCursorWhenFiltersChanged() {
+        // 스마트폰으로 검색해 받은 커서를 태블릿 검색에 그대로 붙인 상황.
+        when(cursorCodec.decode("cursor")).thenReturn(new CursorPayload(
+                Base64CursorCodec.VERSION, ListingQueryService.SORT_KEY,
+                Instant.parse("2026-09-10T00:00:00Z"), 7L,
+                ListingQueryService.filterFingerprint("DIGITAL_PHONE", null, null, null, null),
+                Instant.now()));
+
+        assertThatThrownBy(() ->
+                service().getListings("cursor", null, "DIGITAL_TABLET", null, null, null, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("검색 조건");
+        verify(listingRepository, never()).findPublicPage(any());
+    }
+
+    @Test
+    @DisplayName("가격 조건만 바뀌어도 거부한다 — 숫자 필터도 지문에 들어간다")
+    void rejectsCursorWhenPriceFilterChanged() {
+        when(cursorCodec.decode("cursor")).thenReturn(new CursorPayload(
+                Base64CursorCodec.VERSION, ListingQueryService.SORT_KEY,
+                Instant.parse("2026-09-10T00:00:00Z"), 7L,
+                ListingQueryService.filterFingerprint(null, null, null, 1_000, null),
+                Instant.now()));
+
+        assertThatThrownBy(() ->
+                service().getListings("cursor", null, null, null, null, 2_000, null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("검색 조건");
+        verify(listingRepository, never()).findPublicPage(any());
+    }
+
+    @Test
+    @DisplayName("빈 문자열 필터와 필터 없음은 같은 조건이다 — 결과가 같은 요청을 거부하지 않는다")
+    void blankFilterIsSameAsAbsent() {
+        // 리포지토리가 빈 문자열을 "필터 없음"으로 처리하므로 지문도 둘을 같게 봐야 한다.
+        assertThat(ListingQueryService.filterFingerprint("", " ", null, null, null))
+                .isEqualTo(ListingQueryService.filterFingerprint(null, null, null, null, null));
+        // 반대로 값이 이어 붙어 같은 문자열이 되는 서로 다른 조건은 갈라야 한다.
+        assertThat(ListingQueryService.filterFingerprint("ab", "c", null, null, null))
+                .isNotEqualTo(ListingQueryService.filterFingerprint("a", "bc", null, null, null));
     }
 
     // ── 가격 범위 ─────────────────────────────────────────
