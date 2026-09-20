@@ -8,7 +8,6 @@ import com.safedeal.domain.listing.entity.ListingFavorite;
 import com.safedeal.domain.listing.repository.ListingFavoriteRepository;
 import com.safedeal.domain.listing.repository.ListingRepository;
 import com.safedeal.global.exception.BusinessException;
-import com.safedeal.domain.listing.exception.ListingErrorCode;
 import com.safedeal.global.exception.CommonErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -85,25 +84,25 @@ class FavoriteCommandServiceTest {
     }
 
     @Test
-    @DisplayName("공개 상태가 아닌 매물은 404가 아니라 409로 거부한다")
-    void rejectsNonActiveListingWithConflict() {
+    @DisplayName("공개 상태가 아닌 매물은 없는 매물과 똑같이 404로 거부한다")
+    void rejectsNonActiveListingWithNotFound() {
         // 검증 대기 매물. 팔렸거나 제재된 매물도 같은 경로로 걸린다 — 판정은 isListable() 하나다.
         Listing listing = listing(true);
         when(listingRepository.findByPublicIdAndDeletedAtIsNull(PUBLIC_ID))
                 .thenReturn(Optional.of(listing));
 
-        // 상세 조회는 팔린 매물도 200으로 응답한다. 여기서 404를 주면 방금 화면에 띄운
-        // 매물이 존재하지 않는다는 뜻이 되어 클라이언트가 안내 문구를 만들 수 없다.
+        // 명세: 없거나 비ACTIVE 매물 = 404 C002. 상태별로 다른 응답을 주면 남의 비공개
+        // 매물의 상태가 새어 나간다.
         assertThatThrownBy(() -> favoriteCommandService.add(2L, PUBLIC_ID))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
-                .isEqualTo(ListingErrorCode.FAVORITE_TARGET_NOT_LISTABLE);
+                .isEqualTo(CommonErrorCode.RESOURCE_NOT_FOUND);
         verify(listingFavoriteRepository, never())
                 .insertIfAbsent(any(), any(), anyInt(), any());
     }
 
     @Test
-    @DisplayName("없는 매물을 찜하면 404를 던진다 — 상태 때문에 막힌 경우와 구분된다")
+    @DisplayName("없는 매물을 찜하면 404를 던진다")
     void rejectsUnknownListingWithNotFound() {
         when(listingRepository.findByPublicIdAndDeletedAtIsNull(PUBLIC_ID))
                 .thenReturn(Optional.empty());
@@ -117,40 +116,26 @@ class FavoriteCommandServiceTest {
     @Test
     @DisplayName("해제하면 단일 DELETE로 지운다")
     void deletesRowOnRemove() {
-        Listing listing = listing();
-        ReflectionTestUtils.setField(listing, "id", 55L);
-        when(listingRepository.findByPublicId(PUBLIC_ID)).thenReturn(Optional.of(listing));
-        when(listingFavoriteRepository.deleteByUserIdAndListingId(2L, 55L)).thenReturn(1);
+        when(listingFavoriteRepository.deleteByUserIdAndListingPublicId(2L, PUBLIC_ID))
+                .thenReturn(1);
 
         FavoriteToggleResponse response = favoriteCommandService.remove(2L, PUBLIC_ID);
 
         assertThat(response.favorited()).isFalse();
-        verify(listingFavoriteRepository).deleteByUserIdAndListingId(2L, 55L);
+        verify(listingFavoriteRepository).deleteByUserIdAndListingPublicId(2L, PUBLIC_ID);
         // 조회 후 delete(entity)로 지우면 SELECT와 DELETE 사이 경합으로 409가 난다.
         verify(listingFavoriteRepository, never()).findByUserIdAndListing(any(), any());
     }
 
     @Test
-    @DisplayName("찜하지 않은 매물을 해제해도 성공으로 돌려준다")
-    void removeIsIdempotent() {
-        Listing listing = listing();
-        ReflectionTestUtils.setField(listing, "id", 55L);
-        when(listingRepository.findByPublicId(PUBLIC_ID)).thenReturn(Optional.of(listing));
-        when(listingFavoriteRepository.deleteByUserIdAndListingId(2L, 55L)).thenReturn(0);
+    @DisplayName("찜하지 않았거나 없는 매물을 해제해도 성공이다 — 존재 여부로 응답을 가르지 않는다")
+    void removeIsIdempotentAndDoesNotRevealExistence() {
+        when(listingFavoriteRepository.deleteByUserIdAndListingPublicId(2L, PUBLIC_ID))
+                .thenReturn(0);
 
         assertThat(favoriteCommandService.remove(2L, PUBLIC_ID).favorited()).isFalse();
-    }
-
-    @Test
-    @DisplayName("삭제된 매물도 해제는 된다 — 목록에 남아 있으니 지울 수 있어야 한다")
-    void allowsRemovingFavoriteOfDeletedListing() {
-        Listing listing = listing();
-        ReflectionTestUtils.setField(listing, "id", 55L);
-        listing.softDelete(Instant.now());
-        when(listingRepository.findByPublicId(PUBLIC_ID)).thenReturn(Optional.of(listing));
-        when(listingFavoriteRepository.deleteByUserIdAndListingId(2L, 55L)).thenReturn(1);
-
-        assertThat(favoriteCommandService.remove(2L, PUBLIC_ID).favorited()).isFalse();
-        verify(listingFavoriteRepository).deleteByUserIdAndListingId(2L, 55L);
+        // 매물을 조회하지 않으므로, 삭제된 매물(찜 목록에 남아 있어 지울 수 있어야 함)도
+        // 없던 매물과 같은 경로를 탄다.
+        verify(listingRepository, never()).findByPublicId(any());
     }
 }

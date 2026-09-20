@@ -101,14 +101,20 @@ public class ListingCommandService {
         Listing listing = loadOwned(sellerId, publicId);
 
         // 제재 건만 403이다(명세). 그 외 전이 불가 상태는 잘못된 요청이라 400으로 구분한다.
-        if (listing.getStatus() == ListingStatus.BLOCKED) {
+        ListingStatus current = listing.getStatus();
+        if (current == ListingStatus.BLOCKED) {
             throw new BusinessException(CommonErrorCode.FORBIDDEN, "제재된 매물은 삭제할 수 없습니다.");
         }
-        try {
-            listing.softDelete(Instant.now());
-        } catch (IllegalStateException e) {
+        if (!current.canTransitionTo(ListingStatus.DELETED)) {
             throw new BusinessException(
                     CommonErrorCode.INVALID_INPUT, "지금 상태에서는 삭제할 수 없습니다.");
+        }
+        // 엔티티를 고쳐 저장하지 않고 읽어 둔 상태를 WHERE에 실어 지운다. 그 사이 판매완료·제재가
+        // 커밋됐다면 0행이고, 덮어쓰지 않고 409로 돌려준다.
+        if (listingRepository.softDeleteByOwner(
+                listing.getId(), sellerId, Instant.now(), current) == 0) {
+            throw new BusinessException(
+                    CommonErrorCode.CONFLICT, "지금 상태에서는 처리할 수 없습니다.");
         }
     }
 
@@ -174,8 +180,9 @@ public class ListingCommandService {
     /**
      * 소유자 확인까지 마친 매물을 꺼낸다.
      *
-     * <p>남의 매물이면 404가 아니라 403이다 — 존재 자체는 목록·상세로 이미 공개돼 있어
-     * 숨길 것이 없고, 권한 문제임을 알려주는 편이 낫다.
+     * <p>남의 매물이면 404가 아니라 403이다 — API 명세(매물 수정·삭제·상태 전이)가 "판매자 본인
+     * 아님 = 403 C006"으로 정해 뒀다. 이 때문에 차단된 매물의 존재가 남에게 403으로 드러나는
+     * 한계가 있다(상세 조회는 404). 명세를 바꾸는 사안이라 코드에서 임의로 404로 통일하지 않는다.
      */
     private Listing loadOwned(Long sellerId, String publicId) {
         Listing listing = listingRepository.findByPublicIdAndDeletedAtIsNull(publicId)

@@ -11,9 +11,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -21,6 +25,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 조건부 UPDATE가 동시 전이를 실제로 한 쪽만 통과시키는지 확인한다.
@@ -38,6 +43,12 @@ class ListingStatusTransitionTest extends IntegrationTestSupport {
 
     @Autowired
     CategoryRepository categoryRepository;
+
+    @Autowired
+    TransactionTemplate tx;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     private Category phone;
 
@@ -197,5 +208,174 @@ class ListingStatusTransitionTest extends IntegrationTestSupport {
                 listing.getId(), SELLER_ID, Instant.now());
 
         assertThat(affected).isZero();
+    }
+
+    // ── 수정·삭제(엔티티 저장)와 벌크 전이의 경합 ─────────────────────────────
+
+    /** 트랜잭션이 열려 있는 동안 다른 커넥션에서 실행한다. 같은 스레드면 같은 트랜잭션에 묶인다. */
+    private void inOtherThread(Runnable task) {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            pool.submit(task).get();
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("수정하는 사이 판매완료가 커밋되면 수정이 실패하고 판매완료가 유지된다")
+    void updateDoesNotOverwriteConcurrentMarkSold() {
+        Listing listing = saveActive("01M00000000000000000000011");
+
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+            // 서비스 update()와 같은 순서: 읽고(ACTIVE) → 다른 요청이 끼어들고 → 고치고 flush.
+            Listing loaded = listingRepository.findByPublicId(listing.getPublicId()).orElseThrow();
+            inOtherThread(() -> listingRepository.markSoldByOwner(
+                    listing.getId(), SELLER_ID, Instant.now()));
+            loaded.update("수정", "설명", 950_000, phone, ItemCondition.USED,
+                    "서울특별시", "강남구", LocalDate.of(2026, 9, 20));
+            listingRepository.flush();
+        })).isInstanceOf(OptimisticLockingFailureException.class);
+
+        Listing reloaded = listingRepository.findByPublicId(listing.getPublicId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(ListingStatus.SOLD);
+        assertThat(reloaded.getSoldSource()).isEqualTo(SoldSource.MANUAL);
+        assertThat(reloaded.getSoldAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("수정하는 사이 오른 조회수를 수정이 옛 값으로 되돌리지 않는다")
+    void updateDoesNotRollBackConcurrentViewCount() {
+        Listing listing = saveActive("01M00000000000000000000012");
+
+        tx.executeWithoutResult(status -> {
+            Listing loaded = listingRepository.findByPublicId(listing.getPublicId()).orElseThrow();
+            inOtherThread(() -> listingRepository.increaseViewCount(listing.getPublicId(), 999L));
+            loaded.update("수정", "설명", 950_000, phone, ItemCondition.USED,
+                    "서울특별시", "강남구", LocalDate.of(2026, 9, 20));
+            listingRepository.flush();
+        });
+
+        // 조회수는 version을 올리지 않으므로 낙관적 락이 막지 못한다. 바뀐 컬럼만 쓰는지가 유일한 방어다.
+        Listing reloaded = listingRepository.findByPublicId(listing.getPublicId()).orElseThrow();
+        assertThat(reloaded.getViewCount()).isEqualTo(1);
+        assertThat(reloaded.getTitle()).isEqualTo("수정");
+    }
+
+    // ── 되돌리기 가드 · 삭제 조건부 UPDATE · 버전 ─────────────────────────────
+
+    /** 결제로 팔린 상태를 만든다. 결제 도메인이 아직 없어 엔티티로는 만들 수 없다. */
+    private void markPaymentSold(Listing listing) {
+        jdbc.update("UPDATE listings SET status = 'SOLD', sold_source = 'PAYMENT', "
+                        + "sold_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(Instant.now()), listing.getId());
+    }
+
+    private Instant restoreThreshold() {
+        return Instant.now().minus(Duration.ofHours(24));
+    }
+
+    @Test
+    @DisplayName("결제로 팔린 매물은 24시간 안이어도 되돌릴 수 없다 - 통계 정합")
+    void paymentSoldCannotBeRestored() {
+        Listing listing = saveActive("01M00000000000000000000013");
+        markPaymentSold(listing);
+
+        int affected = listingRepository.restoreManualSoldByOwner(
+                listing.getId(), SELLER_ID, restoreThreshold());
+
+        assertThat(affected).isZero();
+        Listing reloaded = listingRepository.findByPublicId(listing.getPublicId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(ListingStatus.SOLD);
+        assertThat(reloaded.getSoldSource()).isEqualTo(SoldSource.PAYMENT);
+    }
+
+    @Test
+    @DisplayName("남의 매물은 되돌릴 수 없다")
+    void otherUserCannotRestore() {
+        Listing listing = saveActive("01M00000000000000000000014");
+        listingRepository.markSoldByOwner(listing.getId(), SELLER_ID, Instant.now());
+
+        int affected = listingRepository.restoreManualSoldByOwner(
+                listing.getId(), 999L, restoreThreshold());
+
+        assertThat(affected).isZero();
+        assertThat(listingRepository.findByPublicId(listing.getPublicId()).orElseThrow()
+                .getStatus()).isEqualTo(ListingStatus.SOLD);
+    }
+
+    @Test
+    @DisplayName("판매완료가 아닌 매물은 되돌릴 게 없다")
+    void activeCannotBeRestored() {
+        Listing listing = saveActive("01M00000000000000000000015");
+
+        assertThat(listingRepository.restoreManualSoldByOwner(
+                listing.getId(), SELLER_ID, restoreThreshold())).isZero();
+    }
+
+    @Test
+    @DisplayName("판매완료·되돌리기는 version을 올린다 - 읽어 둔 수정이 이를 덮어쓰지 못하게")
+    void statusTransitionsBumpVersion() {
+        Listing listing = saveActive("01M00000000000000000000016");
+        Long v0 = listing.getVersion();
+
+        listingRepository.markSoldByOwner(listing.getId(), SELLER_ID, Instant.now());
+        Long v1 = listingRepository.findByPublicId(listing.getPublicId()).orElseThrow()
+                .getVersion();
+        listingRepository.restoreManualSoldByOwner(
+                listing.getId(), SELLER_ID, restoreThreshold());
+        Long v2 = listingRepository.findByPublicId(listing.getPublicId()).orElseThrow()
+                .getVersion();
+
+        assertThat(v1).isGreaterThan(v0);
+        assertThat(v2).isGreaterThan(v1);
+    }
+
+    @Test
+    @DisplayName("삭제는 읽어 둔 상태 그대로일 때만 되고, 판매 기록은 남는다")
+    void softDeleteKeepsSoldRecord() {
+        Listing listing = saveActive("01M00000000000000000000017");
+        listingRepository.markSoldByOwner(listing.getId(), SELLER_ID, Instant.now());
+
+        int affected = listingRepository.softDeleteByOwner(
+                listing.getId(), SELLER_ID, Instant.now(), ListingStatus.SOLD);
+
+        assertThat(affected).isEqualTo(1);
+        Listing reloaded = listingRepository.findByPublicId(listing.getPublicId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(ListingStatus.DELETED);
+        assertThat(reloaded.getDeletedAt()).isNotNull();
+        assertThat(reloaded.getSoldSource()).isEqualTo(SoldSource.MANUAL);
+        assertThat(reloaded.getSoldAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("삭제하려고 읽은 사이 판매완료가 커밋되면 삭제는 0행이고 판매완료가 유지된다")
+    void softDeleteLosesToConcurrentMarkSold() {
+        Listing listing = saveActive("01M00000000000000000000018");
+        // 삭제 요청이 ACTIVE로 읽은 뒤, 다른 요청이 판매완료를 커밋했다.
+        listingRepository.markSoldByOwner(listing.getId(), SELLER_ID, Instant.now());
+
+        int affected = listingRepository.softDeleteByOwner(
+                listing.getId(), SELLER_ID, Instant.now(), ListingStatus.ACTIVE);
+
+        assertThat(affected).isZero();
+        Listing reloaded = listingRepository.findByPublicId(listing.getPublicId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(ListingStatus.SOLD);
+        assertThat(reloaded.getDeletedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("남의 매물·이미 삭제된 매물은 지워지지 않는다")
+    void softDeleteRejectsOthersAndAlreadyDeleted() {
+        Listing listing = saveActive("01M00000000000000000000019");
+
+        assertThat(listingRepository.softDeleteByOwner(
+                listing.getId(), 999L, Instant.now(), ListingStatus.ACTIVE)).isZero();
+        assertThat(listingRepository.softDeleteByOwner(
+                listing.getId(), SELLER_ID, Instant.now(), ListingStatus.ACTIVE)).isEqualTo(1);
+        assertThat(listingRepository.softDeleteByOwner(
+                listing.getId(), SELLER_ID, Instant.now(), ListingStatus.ACTIVE)).isZero();
     }
 }

@@ -2,7 +2,6 @@ package com.safedeal.domain.listing.service;
 
 import com.safedeal.domain.listing.dto.FavoriteToggleResponse;
 import com.safedeal.domain.listing.entity.Listing;
-import com.safedeal.domain.listing.exception.ListingErrorCode;
 import com.safedeal.domain.listing.repository.ListingFavoriteRepository;
 import com.safedeal.domain.listing.repository.ListingRepository;
 import com.safedeal.global.exception.BusinessException;
@@ -31,14 +30,13 @@ public class FavoriteCommandService {
      *
      * <p>ACTIVE 매물만 찜할 수 있다. 팔렸거나 내려간 매물을 새로 찜하면 알림이 나갈 일이 없어
      * 기준가만 쌓인다. (이미 찜해둔 매물이 나중에 팔리는 것은 별개 — 그 행은 그대로 둔다.)
+     * 그 외 상태는 없는 매물과 같은 404다 — 명세가 "없거나 비ACTIVE 매물 = 404 C002"로 정했고,
+     * 상태별로 응답을 갈라 주면 남의 비공개 매물(제재·검증대기)의 상태가 새어 나간다.
      */
     public FavoriteToggleResponse add(Long userId, String publicId) {
         Listing listing = findExisting(publicId);
         if (!listing.isListable()) {
-            // 404가 아니라 409다. 상세 조회는 팔린 매물도 정상 응답하므로, 여기서 "찾을 수
-            // 없습니다"를 주면 방금 화면에 띄운 매물이 없다는 뜻이 되어 클라이언트가 링크가
-            // 깨진 것으로 오인한다. 존재하지만 상태 때문에 거부하는 경우다.
-            throw new BusinessException(ListingErrorCode.FAVORITE_TARGET_NOT_LISTABLE);
+            throw notFound();
         }
 
         listingFavoriteRepository.insertIfAbsent(
@@ -49,24 +47,24 @@ public class FavoriteCommandService {
     /**
      * 찜 해제. 행을 지운다 — 본인 데이터이고 분쟁 증거 가치가 없다.
      *
-     * <p>찜하지 않은 매물을 해제해도 성공으로 돌려준다(명세가 멱등 허용). 최종 상태가 같고,
-     * 404를 던지면 화면에서 하트가 이미 꺼져 있는데 오류만 뜬다.
+     * <p>찜하지 않았거나 없는 매물이어도 성공으로 돌려준다(명세가 멱등 허용). 최종 상태가
+     * 같고, 404를 던지면 화면에서 하트가 이미 꺼져 있는데 오류만 뜬다. 매물 존재 여부에 따라
+     * 응답을 가르지 않는 것은 존재 여부 노출을 막는 이유도 된다.
      *
      * <p>삭제된 매물의 찜도 해제할 수 있어야 한다 — 목록에 남아 있으니 지울 수단이 있어야 한다.
      */
     public FavoriteToggleResponse remove(Long userId, String publicId) {
-        Listing listing = listingRepository.findByPublicId(publicId)
-                .orElseThrow(() -> new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND, "매물을 찾을 수 없습니다."));
-
-        listingFavoriteRepository.deleteByUserIdAndListingId(userId, listing.getId());
+        listingFavoriteRepository.deleteByUserIdAndListingPublicId(userId, publicId);
         return FavoriteToggleResponse.off();
     }
 
     /** 소프트 삭제된 매물은 없는 것으로 본다 — 새로 찜할 대상이 아니다. */
     private Listing findExisting(String publicId) {
         return listingRepository.findByPublicIdAndDeletedAtIsNull(publicId)
-                .orElseThrow(() -> new BusinessException(
-                        CommonErrorCode.RESOURCE_NOT_FOUND, "매물을 찾을 수 없습니다."));
+                .orElseThrow(FavoriteCommandService::notFound);
+    }
+
+    private static BusinessException notFound() {
+        return new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND, "매물을 찾을 수 없습니다.");
     }
 }

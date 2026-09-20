@@ -89,16 +89,29 @@ class ListingFavoriteRepositoryTest extends IntegrationTestSupport {
     }
 
     @Test
-    @DisplayName("deleteByUserIdAndListingId는 없는 찜에 대해 0행을 돌려준다")
+    @DisplayName("공개 ID로 지우면 없는 찜은 0행, 있는 찜은 1행이다 — 없는 매물도 예외 없이 0행")
     void deleteReturnsZeroWhenAbsent() {
         Listing listing = listing("아이폰");
 
-        assertThat(listingFavoriteRepository.deleteByUserIdAndListingId(USER, listing.getId()))
-                .isZero();
+        assertThat(listingFavoriteRepository
+                .deleteByUserIdAndListingPublicId(USER, listing.getPublicId())).isZero();
+        assertThat(listingFavoriteRepository
+                .deleteByUserIdAndListingPublicId(USER, "01NOSUCHLISTING0000000000")).isZero();
 
         favorite(USER, listing);
-        assertThat(listingFavoriteRepository.deleteByUserIdAndListingId(USER, listing.getId()))
-                .isEqualTo(1);
+        assertThat(listingFavoriteRepository
+                .deleteByUserIdAndListingPublicId(USER, listing.getPublicId())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 찜은 지워지지 않는다")
+    void deleteOnlyRemovesOwnFavorite() {
+        Listing listing = listing("아이폰");
+        favorite(USER + 1, listing);
+
+        assertThat(listingFavoriteRepository
+                .deleteByUserIdAndListingPublicId(USER, listing.getPublicId())).isZero();
+        assertThat(listingFavoriteRepository.count()).isEqualTo(1);
     }
 
     @Test

@@ -37,7 +37,8 @@ public interface ListingRepository extends JpaRepository<Listing, Long>, Listing
     @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Listing l "
-            + "SET l.status = :soldStatus, l.soldSource = :manualSource, l.soldAt = :now "
+            + "SET l.status = :soldStatus, l.soldSource = :manualSource, l.soldAt = :now, "
+            + "l.version = l.version + 1, l.updatedAt = :now "
             + "WHERE l.id = :id AND l.sellerId = :sellerId "
             + "AND l.status = :activeStatus AND l.deletedAt IS NULL")
     int markSoldByOwner(@Param("id") Long id,
@@ -56,16 +57,40 @@ public interface ListingRepository extends JpaRepository<Listing, Long>, Listing
     @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE Listing l "
-            + "SET l.status = :activeStatus, l.soldSource = NULL, l.soldAt = NULL "
+            + "SET l.status = :activeStatus, l.soldSource = NULL, l.soldAt = NULL, "
+            + "l.version = l.version + 1, l.updatedAt = :now "
             + "WHERE l.id = :id AND l.sellerId = :sellerId "
             + "AND l.status = :soldStatus AND l.soldSource = :manualSource "
             + "AND l.soldAt > :threshold AND l.deletedAt IS NULL")
     int restoreManualSoldByOwner(@Param("id") Long id,
                                  @Param("sellerId") Long sellerId,
                                  @Param("threshold") Instant threshold,
+                                 @Param("now") Instant now,
                                  @Param("activeStatus") ListingStatus activeStatus,
                                  @Param("soldStatus") ListingStatus soldStatus,
                                  @Param("manualSource") SoldSource manualSource);
+
+    /**
+     * 소프트 삭제. 읽어 둔 상태({@code expected}) 그대로일 때만 지운다.
+     *
+     * <p>엔티티를 고쳐 저장하는 방식이면 읽은 뒤 다른 요청(판매완료·제재)이 끼어들었을 때
+     * 그 결과를 모른 채 덮어쓴다. 영향 행이 0이면 그 사이 상태가 바뀐 것이다.
+     *
+     * <p>판매 기록({@code sold_source}·{@code sold_at})은 건드리지 않는다 — 삭제해도 거래
+     * 이력은 남아야 한다.
+     */
+    @Transactional
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE Listing l "
+            + "SET l.status = :deletedStatus, l.deletedAt = :now, "
+            + "l.version = l.version + 1, l.updatedAt = :now "
+            + "WHERE l.id = :id AND l.sellerId = :sellerId "
+            + "AND l.status = :expected AND l.deletedAt IS NULL")
+    int softDeleteByOwner(@Param("id") Long id,
+                          @Param("sellerId") Long sellerId,
+                          @Param("now") Instant now,
+                          @Param("expected") ListingStatus expected,
+                          @Param("deletedStatus") ListingStatus deletedStatus);
 
     /**
      * 조회수 +1. 판매자 본인은 세지 않는다.
@@ -89,7 +114,11 @@ public interface ListingRepository extends JpaRepository<Listing, Long>, Listing
     }
 
     default int restoreManualSoldByOwner(Long id, Long sellerId, Instant threshold) {
-        return restoreManualSoldByOwner(id, sellerId, threshold,
+        return restoreManualSoldByOwner(id, sellerId, threshold, Instant.now(),
                 ListingStatus.ACTIVE, ListingStatus.SOLD, SoldSource.MANUAL);
+    }
+
+    default int softDeleteByOwner(Long id, Long sellerId, Instant now, ListingStatus expected) {
+        return softDeleteByOwner(id, sellerId, now, expected, ListingStatus.DELETED);
     }
 }

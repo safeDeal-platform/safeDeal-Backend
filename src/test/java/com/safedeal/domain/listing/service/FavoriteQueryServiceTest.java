@@ -65,6 +65,24 @@ class FavoriteQueryServiceTest {
     }
 
     @Test
+    @DisplayName("응답 필드는 제 자리에서 온다 - 찜 시점 기준가와 현재가가 뒤바뀌지 않는다")
+    void mapsFieldsToTheirOwnSource() {
+        Instant createdAt = Instant.parse("2026-08-30T00:00:00Z");
+        ListingFavorite row = favorite(1, createdAt);
+        ReflectionTestUtils.setField(row, "notifyBasePrice", 1_100_000);
+        when(repository.findPage(eq(USER), isNull(), isNull(), any(Pageable.class)))
+                .thenReturn(List.of(row));
+
+        FavoriteSummaryResponse item = service.getMyFavorites(USER, null, 20).items().get(0);
+
+        assertThat(item.notifyBasePrice()).isEqualTo(1_100_000);
+        assertThat(item.listing().price()).isEqualTo(950_000);
+        assertThat(item.listing().publicId()).isEqualTo("01J3A1");
+        assertThat(item.listing().title()).isEqualTo("아이폰 1");
+        assertThat(item.favoritedAt()).isEqualTo(createdAt);
+    }
+
+    @Test
     @DisplayName("size+1건이 오면 초과분을 잘라내고 hasNext를 켠다")
     void trimsExtraRowAndFlagsHasNext() {
         when(repository.findPage(eq(USER), isNull(), isNull(), any(Pageable.class)))

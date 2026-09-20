@@ -65,13 +65,18 @@ public interface ListingFavoriteRepository extends JpaRepository<ListingFavorite
      * {@code ObjectOptimisticLockingFailureException} → 409가 나간다. 해제 멱등 정책과
      * 어긋나며 이 역시 8스레드 테스트에서 재현했다. 단일 DELETE 구문에는 그 창이 없다.
      *
+     * <p>매물을 먼저 조회하지 않고 공개 ID를 서브쿼리로 푼다. 조회 결과에 따라 응답을 갈라
+     * 버리면 "삭제된 id는 200, 없던 id는 404"처럼 남의 매물 존재 여부가 응답 차이로 새어 나간다.
+     * 이 구문은 매물이 있든 없든 자기 찜만 지우고 0행 또는 1행으로 끝난다.
+     *
      * @return 실제로 지운 행 수(0 또는 1)
      */
     @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)
-    @Query("DELETE FROM ListingFavorite f WHERE f.userId = :userId AND f.listing.id = :listingId")
-    int deleteByUserIdAndListingId(@Param("userId") Long userId,
-                                   @Param("listingId") Long listingId);
+    @Query("DELETE FROM ListingFavorite f WHERE f.userId = :userId AND f.listing.id IN "
+            + "(SELECT l.id FROM Listing l WHERE l.publicId = :publicId)")
+    int deleteByUserIdAndListingPublicId(@Param("userId") Long userId,
+                                         @Param("publicId") String publicId);
 
     /**
      * 내 찜 목록. 매물을 함께 가져온다 — 목록 한 줄마다 제목·가격·상태가 필요해 지연 로딩으로

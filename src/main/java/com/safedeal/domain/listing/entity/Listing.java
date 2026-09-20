@@ -19,6 +19,7 @@ import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -36,6 +37,7 @@ import java.time.LocalDate;
  * "조회만 했는데 판매자의 수정이 실패하는" 버그가 난다. 별도 벌크 UPDATE로 처리한다.
  */
 @Entity
+@DynamicUpdate
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Table(
@@ -134,7 +136,14 @@ public class Listing extends MutableEntity {
     @Column(name = "image_version", nullable = false)
     private long imageVersion;
 
-    /** 내용 수정 충돌용. 상태 전이는 이것이 아니라 조건부 UPDATE로 막는다 — 서로 다른 문제다. */
+    /**
+     * 내용 수정 충돌용. 상태 전이는 이것이 아니라 조건부 UPDATE로 막는다 — 서로 다른 문제다.
+     *
+     * <p>다만 상태 전이 벌크 UPDATE도 이 값을 함께 올린다. 안 올리면 수정 요청이 읽어 둔 뒤
+     * 판매완료가 커밋돼도 버전 검사를 통과해, 수정이 판매완료를 되돌린다. 조회수 증가만
+     * 예외다(올리면 남이 열어본 것만으로 판매자의 수정이 실패한다) — 그래서 이 엔티티는
+     * {@code @DynamicUpdate}로 바뀐 컬럼만 쓴다. 안 그러면 수정이 옛 조회수를 덮어쓴다.
+     */
     @Version
     private Long version;
 
