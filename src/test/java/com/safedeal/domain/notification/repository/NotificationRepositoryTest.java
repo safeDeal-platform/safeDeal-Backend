@@ -150,6 +150,33 @@ class NotificationRepositoryTest {
     }
 
     @Test
+    @DisplayName("안 읽은 IN_APP 알림 개수를 센다 (읽은 것·다른 사용자·EMAIL 채널 제외)")
+    void countsUnreadInAppOnly() {
+        notificationRepository.save(inApp()); // 안읽음 1
+        Notification read = notificationRepository.save(inApp());
+        read.markAsRead(Instant.now());
+        notificationRepository.save(Notification.inApp(OTHER_USER, NotificationType.CHAT, "t", "b", null, null, null));
+        Notification email = inApp();
+        ReflectionTestUtils.setField(email, "channel", NotificationChannel.EMAIL);
+        notificationRepository.save(email);
+        notificationRepository.flush();
+
+        long unread = notificationRepository
+                .countByUserIdAndChannelAndReadAtIsNull(USER, NotificationChannel.IN_APP);
+
+        assertThat(unread).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("안읽은 알림이 없으면 0을 반환한다")
+    void countsZeroWhenNoUnread() {
+        long unread = notificationRepository
+                .countByUserIdAndChannelAndReadAtIsNull(USER, NotificationChannel.IN_APP);
+
+        assertThat(unread).isZero();
+    }
+
+    @Test
     @DisplayName("read_at은 저장 후에도 null이고, 읽음 처리하면 값이 남는다")
     void persistsReadAt() {
         Notification saved = notificationRepository.save(inApp());

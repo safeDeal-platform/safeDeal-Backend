@@ -42,4 +42,11 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
      * 존재 여부 자체도 알려주지 않는다.
      */
     Optional<Notification> findByIdAndUserId(Long id, Long userId);
+
+    /**
+     * 안 읽은 IN_APP 알림 개수(배지용). 목록과 동일하게 채널을 IN_APP으로 고정한다 —
+     * 안 고르면 읽음 처리 UI가 없는 EMAIL 알림이 read_at=null로 영구 누적돼 배지에 섞인다.
+     * Top10 상한이 걸린 목록 조회로는 셀 수 없어(최대 10건만 온다) 별도 COUNT가 필요하다.
+     */
+    long countByUserIdAndChannelAndReadAtIsNull(Long userId, NotificationChannel channel);
 }
