@@ -1,6 +1,7 @@
 package com.safedeal.domain.notification.service;
 
 import com.safedeal.domain.notification.dto.NotificationListResponse;
+import com.safedeal.domain.notification.dto.UnreadCountResponse;
 import com.safedeal.domain.notification.entity.Notification;
 import com.safedeal.domain.notification.entity.NotificationChannel;
 import com.safedeal.domain.notification.repository.NotificationRepository;
@@ -47,5 +48,17 @@ public class NotificationQueryService {
         List<Notification> newestFirst = new ArrayList<>(oldestUnseenFirst);
         Collections.reverse(newestFirst);
         return NotificationListResponse.of(newestFirst);
+    }
+
+    /**
+     * 안 읽은 IN_APP 알림 개수(배지). 전체 개수를 센다 — 화면(최대 10건)에 안 보이는
+     * 오래된 안읽음도 포함한다.
+     *
+     * @param userId 현재 사용자 내부 PK
+     */
+    public UnreadCountResponse getUnreadCount(Long userId) {
+        long unreadCount = notificationRepository
+                .countByUserIdAndChannelAndReadAtIsNull(userId, NotificationChannel.IN_APP);
+        return new UnreadCountResponse(unreadCount);
     }
 }

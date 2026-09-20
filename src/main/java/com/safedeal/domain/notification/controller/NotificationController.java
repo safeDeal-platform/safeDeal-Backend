@@ -1,6 +1,7 @@
 package com.safedeal.domain.notification.controller;
 
 import com.safedeal.domain.notification.dto.NotificationListResponse;
+import com.safedeal.domain.notification.dto.UnreadCountResponse;
 import com.safedeal.domain.notification.service.NotificationCommandService;
 import com.safedeal.domain.notification.service.NotificationQueryService;
 import com.safedeal.global.response.ApiResponse;
@@ -40,6 +41,15 @@ public class NotificationController {
             @RequestParam(required = false) Long sinceId) {
         return ApiResponse.success(
                 notificationQueryService.getNotifications(user.userId(), sinceId));
+    }
+
+    /**
+     * 안 읽은 알림 개수(배지). 인증 없으면 시큐리티 계층에서 401(C005)로 걸러진다.
+     */
+    @GetMapping("/unread-count")
+    public ApiResponse<UnreadCountResponse> getUnreadCount(
+            @AuthenticationPrincipal AuthenticatedUser user) {
+        return ApiResponse.success(notificationQueryService.getUnreadCount(user.userId()));
     }
 
     /**
