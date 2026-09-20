@@ -4,7 +4,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.mysql.MySQLContainer;
 
 /**
  * DB·Redis에 실제로 붙어야 하는 테스트의 공통 부모.
@@ -40,8 +40,9 @@ import org.testcontainers.containers.MySQLContainer;
 @ActiveProfiles({"local", "test"})
 public abstract class IntegrationTestSupport {
 
+    // 새 패키지(org.testcontainers.mysql)의 MySQLContainer는 자기타입 제네릭이 없다.
     @ServiceConnection
-    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0.36");
+    static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.0.36");
 
     /**
      * Redis가 없으면 actuator 종합 health가 DOWN(503)이 된다 — health 지표에 Redis가 포함되기

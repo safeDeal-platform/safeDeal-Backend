@@ -25,6 +25,8 @@ class RequiredPropertyGuardTest {
         env.setProperty("spring.kafka.bootstrap-servers", "kafka.internal:9092");
         env.setProperty("app.cors.allowed-origins", "https://safedeal.example.com");
         env.setProperty("app.kafka.consumer-group.chat-fanout", "safedeal-chat-fanout-task1");
+        env.setProperty("app.jwt.secret", "test-secret-key-at-least-32-bytes-long!!");
+        env.setProperty("app.mail.provider", "resend");
         return env;
     }
 
@@ -33,6 +35,17 @@ class RequiredPropertyGuardTest {
     void allPresent_passes() {
         assertThatCode(() -> new RequiredPropertyGuard(fullyConfigured()).checkRequiredProperties())
                 .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("운영에서 메일 제공자가 log면 기동을 막는다 (값이 있는 것만으로는 부족하다)")
+    void logMailProviderInProd_isRejected() {
+        MockEnvironment env = fullyConfigured();
+        env.setProperty("app.mail.provider", "log");
+
+        assertThatThrownBy(() -> new RequiredPropertyGuard(env).checkRequiredProperties())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("app.mail.provider");
     }
 
     @Test

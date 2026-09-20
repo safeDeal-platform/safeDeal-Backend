@@ -1,0 +1,403 @@
+package com.safedeal.domain.auth;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockCookie;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.MySQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import static org.hamcrest.Matchers.greaterThan;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/**
+ * 인증 한 사이클 회귀 테스트 — 회원가입·로그인·재발급(RTR)·로그아웃 (AUTH-1 ~ AUTH-4).
+ *
+ * 여기서 고정하는 것은 대외 계약과 보안 가정이다: 응답 형식, refresh가 바디가 아니라 쿠키로
+ * 나가는 것, 계정 열거를 막기 위해 실패 응답을 같게 유지하는 것, RTR 재사용 감지, 로그아웃 후
+ * 블랙리스트 차단. 깨지면 프런트와 보안 가정이 함께 깨지므로 고치기 전에 팀에 공유할 것.
+ *
+ * 프로파일이 (local, test)인 이유는 ApiContractTest와 같다 — local은 개발 인증 필터를 켜고,
+ * test는 logback의 Loki 전송을 끈다. 보호 경로 확인에는 테스트 전용 프로브(/__test/me)를 쓴다.
+ */
+@SpringBootTest
+@AutoConfigureMockMvc
+@ActiveProfiles({"local", "test"})
+@Testcontainers
+class AuthFlowTest {
+
+    private static final String PROTECTED_PROBE = "/__test/me";
+
+    @Container
+    static final MySQLContainer<?> MYSQL = new MySQLContainer<>("mysql:8.0.36");
+
+    @Container
+    static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7.2-alpine")
+            .withExposedPorts(6379);
+
+    @DynamicPropertySource
+    static void infra(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
+        registry.add("spring.datasource.username", MYSQL::getUsername);
+        registry.add("spring.datasource.password", MYSQL::getPassword);
+        registry.add("spring.data.redis.host", REDIS::getHost);
+        registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
+    }
+
+    @Autowired
+    MockMvc mockMvc;
+
+    @Autowired
+    ObjectMapper objectMapper;
+
+    private static int sequence = 0;
+
+    /** 테스트끼리 이메일·닉네임 UNIQUE가 충돌하지 않도록 매번 다른 값을 쓴다. */
+    private static String unique(String prefix) {
+        return prefix + (++sequence);
+    }
+
+
+    @Test
+    @DisplayName("가입·로그인 응답은 같은 모양이고 프로필·신뢰도까지 함께 준다")
+    void authResponseCarriesProfile() throws Exception {
+        String email = unique("profile") + "@test.com";
+        String nickname = unique("프로필");
+
+        // 가입: 아직 메일 인증 전이고 신뢰도는 시작값(내부 500 -> 표시 50.0)이다.
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody(email, nickname)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.publicId").isNotEmpty())
+                .andExpect(jsonPath("$.data.nickname").value(nickname))
+                .andExpect(jsonPath("$.data.role").value("USER"))
+                .andExpect(jsonPath("$.data.emailVerified").value(false))
+                .andExpect(jsonPath("$.data.trustScore").value(50.0))
+                .andExpect(jsonPath("$.data.expiresIn").value(greaterThan(0)));
+
+        // 로그인도 같은 필드를 준다 - 프론트가 두 경로를 같은 핸들러로 처리할 수 있어야 한다.
+        mockMvc.perform(loginRequest(email, "password123"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nickname").value(nickname))
+                .andExpect(jsonPath("$.data.role").value("USER"))
+                .andExpect(jsonPath("$.data.emailVerified").value(false))
+                .andExpect(jsonPath("$.data.trustScore").value(50.0));
+    }
+
+    @Test
+    @DisplayName("재발급 응답에는 유저 정보가 실리지 않는다")
+    void reissueReturnsTokenOnly() throws Exception {
+        MvcResult signedUp = signup(unique("reissue-shape") + "@test.com", unique("재발급모양"));
+        MockCookie refresh = (MockCookie) signedUp.getResponse().getCookie("refreshToken");
+
+        mockMvc.perform(post("/api/auth/reissue").cookie(refresh))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.accessToken").isNotEmpty())
+                .andExpect(jsonPath("$.data.expiresIn").value(greaterThan(0)))
+                .andExpect(jsonPath("$.data.nickname").doesNotExist())
+                .andExpect(jsonPath("$.data.trustScore").doesNotExist());
+    }
+    private String signupBody(String email, String nickname) {
+        return """
+                {"email":"%s","password":"password123","nickname":"%s"}
+                """.formatted(email, nickname);
+    }
+
+    private MockHttpServletRequestBuilder loginRequest(String email, String password) {
+        return post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"email":"%s","password":"%s"}
+                        """.formatted(email, password));
+    }
+
+    private MvcResult signup(String email, String nickname) throws Exception {
+        return mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody(email, nickname)))
+                .andExpect(status().isCreated())
+                .andReturn();
+    }
+
+    private String accessTokenOf(MvcResult result) throws Exception {
+        JsonNode body = objectMapper.readTree(result.getResponse().getContentAsString());
+        return body.path("data").path("accessToken").asText();
+    }
+
+    @Test
+    @DisplayName("가입하면 곧바로 로그인 상태가 되고, access는 바디로 refresh는 httpOnly 쿠키로 나간다")
+    void signupIssuesTokens() throws Exception {
+        MvcResult result = signup(unique("signup") + "@test.com", unique("가입자"));
+
+        assertThat(accessTokenOf(result)).isNotBlank();
+
+        MockCookie refresh = (MockCookie) result.getResponse().getCookie("refreshToken");
+        assertThat(refresh).isNotNull();
+        assertThat(refresh.isHttpOnly()).isTrue();
+        assertThat(refresh.getSecure()).isTrue();
+        assertThat(refresh.getPath()).isEqualTo("/api/auth");
+        // refresh가 바디에도 실리면 httpOnly를 둔 이유가 통째로 사라진다.
+        assertThat(result.getResponse().getContentAsString()).doesNotContain(refresh.getValue());
+    }
+
+    @Test
+    @DisplayName("발급받은 access로 보호된 경로에 접근할 수 있고, principal이 채워진다")
+    void accessTokenAuthenticatesProtectedApi() throws Exception {
+        MvcResult signedUp = signup(unique("protected") + "@test.com", unique("보호"));
+        String token = accessTokenOf(signedUp);
+
+        mockMvc.perform(get(PROTECTED_PROBE).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("USER"));
+
+        mockMvc.perform(get(PROTECTED_PROBE))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("가입한 계정으로 로그인하면 새 토큰이 나온다")
+    void loginIssuesTokens() throws Exception {
+        String email = unique("login") + "@test.com";
+        signup(email, unique("로그인"));
+
+        MvcResult result = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","password":"password123"}
+                                """.formatted(email)))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertThat(accessTokenOf(result)).isNotBlank();
+        assertThat(result.getResponse().getCookie("refreshToken")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("중복 이메일은 AUTH001, 중복 닉네임은 AUTH002")
+    void duplicateSignupIsRejected() throws Exception {
+        String email = unique("dup") + "@test.com";
+        String nickname = unique("중복");
+        signup(email, nickname);
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody(email, unique("다른닉"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("AUTH001"));
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody(unique("other") + "@test.com", nickname)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("AUTH002"));
+    }
+
+    @Test
+    @DisplayName("없는 계정과 틀린 비밀번호는 완전히 같은 401을 준다 (계정 열거 방지)")
+    void loginFailuresAreIndistinguishable() throws Exception {
+        String email = unique("enum") + "@test.com";
+        signup(email, unique("열거"));
+
+        String wrongPassword = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","password":"totally-wrong-password"}
+                                """.formatted(email)))
+                .andExpect(status().isUnauthorized())
+                .andReturn().getResponse().getContentAsString();
+
+        String unknownAccount = mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"no-such-account@test.com","password":"totally-wrong-password"}
+                                """))
+                .andExpect(status().isUnauthorized())
+                .andReturn().getResponse().getContentAsString();
+
+        // requestId만 다르므로 에러 코드·메시지가 같은지로 비교한다.
+        JsonNode a = objectMapper.readTree(wrongPassword).path("error");
+        JsonNode b = objectMapper.readTree(unknownAccount).path("error");
+        assertThat(a.path("code").asText()).isEqualTo(b.path("code").asText()).isEqualTo("AUTH003");
+        assertThat(a.path("message").asText()).isEqualTo(b.path("message").asText());
+    }
+
+    @Test
+    @DisplayName("재발급하면 새 토큰이 나오고, 직전 refresh를 다시 쓰면 재사용으로 보고 전 세션을 끊는다")
+    void reissueRotatesAndDetectsReuse() throws Exception {
+        MvcResult signedUp = signup(unique("rtr") + "@test.com", unique("회전"));
+        MockCookie first = (MockCookie) signedUp.getResponse().getCookie("refreshToken");
+        assertThat(first).isNotNull();
+
+        MvcResult reissued = mockMvc.perform(post("/api/auth/reissue").cookie(first))
+                .andExpect(status().isOk())
+                .andReturn();
+        MockCookie second = (MockCookie) reissued.getResponse().getCookie("refreshToken");
+        assertThat(second).isNotNull();
+        assertThat(second.getValue()).isNotEqualTo(first.getValue());
+
+        // 직전 토큰은 RTR로 폐기됐다 → 화이트리스트에 없으므로 재사용 공격으로 판정된다.
+        mockMvc.perform(post("/api/auth/reissue").cookie(first))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("AUTH004"));
+
+        // 재사용이 감지되면 그 유저의 모든 세션이 끊긴다 → 방금 받은 새 토큰도 못 쓴다.
+        mockMvc.perform(post("/api/auth/reissue").cookie(second))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("refresh 쿠키 없이 재발급하면 AUTH007")
+    void reissueWithoutCookie() throws Exception {
+        mockMvc.perform(post("/api/auth/reissue"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("AUTH007"));
+    }
+
+    @Test
+    @DisplayName("로그아웃하면 access가 블랙리스트에 올라가고 쿠키가 삭제된다")
+    void logoutBlacklistsAccessAndClearsCookie() throws Exception {
+        MvcResult signedUp = signup(unique("logout") + "@test.com", unique("로그아웃"));
+        String token = accessTokenOf(signedUp);
+        MockCookie refresh = (MockCookie) signedUp.getResponse().getCookie("refreshToken");
+
+        MvcResult loggedOut = mockMvc.perform(post("/api/auth/logout")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .cookie(refresh))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        MockCookie cleared = (MockCookie) loggedOut.getResponse().getCookie("refreshToken");
+        assertThat(cleared).isNotNull();
+        assertThat(cleared.getMaxAge()).isZero();
+
+        // 서명은 여전히 유효하지만 블랙리스트에 걸려 더 이상 인증되지 않는다.
+        mockMvc.perform(get(PROTECTED_PROBE).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+
+        // 폐기된 refresh로는 재발급도 안 된다.
+        mockMvc.perform(post("/api/auth/reissue").cookie(refresh))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("로그아웃은 토큰이 하나도 없어도 200 (만료 후에도 쿠키는 지워져야 한다)")
+    void logoutWithoutTokensStillSucceeds() throws Exception {
+        MvcResult result = mockMvc.perform(post("/api/auth/logout"))
+                .andExpect(status().isOk())
+                .andReturn();
+        MockCookie cleared = (MockCookie) result.getResponse().getCookie("refreshToken");
+        assertThat(cleared).isNotNull();
+        assertThat(cleared.getMaxAge()).isZero();
+    }
+
+    @Test
+    @DisplayName("위조 토큰으로는 인증되지 않는다")
+    void forgedTokenIsRejected() throws Exception {
+        mockMvc.perform(get(PROTECTED_PROBE)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer forged.token.value"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("refresh 토큰을 Authorization 헤더에 넣어도 인증되지 않는다 (typ 구분)")
+    void refreshTokenCannotBeUsedAsAccess() throws Exception {
+        MvcResult signedUp = signup(unique("typ") + "@test.com", unique("타입"));
+        MockCookie refresh = (MockCookie) signedUp.getResponse().getCookie("refreshToken");
+        assertThat(refresh).isNotNull();
+
+        mockMvc.perform(get(PROTECTED_PROBE)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + refresh.getValue()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("공개 경로는 토큰 없이도 열려 있다 (인증 필터가 공개 API를 막지 않는다)")
+    void publicEndpointsRemainOpen() throws Exception {
+        mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("비밀번호를 5회 틀리면 잠기고, 잠긴 동안에는 올바른 비밀번호도 통과하지 않는다 (AUTH-8)")
+    void bruteForceLocksAccount() throws Exception {
+        String email = unique("brute") + "@test.com";
+        signup(email, unique("무차별"));
+
+        // 5회까지는 잠금 검사를 통과하고 대조에서 떨어진다.
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            mockMvc.perform(loginRequest(email, "wrong-password"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error.code").value("AUTH003"));
+        }
+
+        // 6번째부터는 대조 자체를 하지 않고 잠금으로 막는다.
+        mockMvc.perform(loginRequest(email, "wrong-password"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("AUTH006"));
+
+        // 잠금이 비밀번호 대조보다 앞이라는 것이 핵심이다. 맞는 비밀번호가 통과해버리면
+        // 공격자는 잠긴 뒤에도 대입을 계속할 수 있어 잠금이 아무것도 막지 못한다.
+        mockMvc.perform(loginRequest(email, "password123"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("AUTH006"));
+    }
+
+    @Test
+    @DisplayName("로그인에 성공하면 실패 카운터가 초기화된다")
+    void successfulLoginClearsFailureCounter() throws Exception {
+        String email = unique("counter") + "@test.com";
+        signup(email, unique("카운터"));
+
+        for (int attempt = 1; attempt <= 4; attempt++) {
+            mockMvc.perform(loginRequest(email, "wrong-password"))
+                    .andExpect(status().isUnauthorized());
+        }
+        mockMvc.perform(loginRequest(email, "password123")).andExpect(status().isOk());
+
+        // 초기화되지 않았다면 아래 4회 중 첫 번째에서 누적 5회에 도달해 429가 났을 것이다.
+        // 정상 사용자가 오타 몇 번 낸 뒤 로그인에 성공했는데 다음 날 잠기는 일을 막는다.
+        for (int attempt = 1; attempt <= 4; attempt++) {
+            mockMvc.perform(loginRequest(email, "wrong-password"))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.error.code").value("AUTH003"));
+        }
+    }
+
+    @Test
+    @DisplayName("잠금은 계정 단위라 다른 계정의 로그인을 막지 않는다")
+    void lockIsScopedToAccount() throws Exception {
+        String locked = unique("victim") + "@test.com";
+        String other = unique("bystander") + "@test.com";
+        signup(locked, unique("피해자"));
+        signup(other, unique("이웃"));
+
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            mockMvc.perform(loginRequest(locked, "wrong-password"))
+                    .andExpect(status().isUnauthorized());
+        }
+        mockMvc.perform(loginRequest(locked, "password123"))
+                .andExpect(status().isTooManyRequests());
+
+        // 같은 IP에서 온 다른 계정까지 잠기면 공유 IP(회사·학교) 사용자가 통째로 막힌다.
+        mockMvc.perform(loginRequest(other, "password123"))
+                .andExpect(status().isOk());
+    }
+}

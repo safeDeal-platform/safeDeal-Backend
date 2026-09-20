@@ -48,6 +48,9 @@ public class Category extends MutableEntity {
     /** 중분류(leaf) depth — 매물이 가리킬 수 있는 유일한 단계. */
     public static final int LEAF_DEPTH = 2;
 
+    /** code 규약 {대분류}_{중분류}의 구분자. */
+    public static final String CODE_SEPARATOR = "_";
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -104,6 +107,13 @@ public class Category extends MutableEntity {
         if (parent.depth != ROOT_DEPTH) {
             throw new IllegalArgumentException(
                     "중분류의 부모는 대분류여야 합니다: " + code + " -> " + parent.code);
+        }
+        // code 규약을 코드로 못 박는다. {대분류}_{중분류} 형식이라 부모를 바꾸면 code도 바뀌고,
+        // 그 덕에 "부모만 조용히 옮겨져 정의와 어긋나는" 상태가 생기지 않는다. 규약이 실질적
+        // 안전장치이므로 문서가 아니라 여기서 강제한다.
+        if (!code.startsWith(parent.code + CODE_SEPARATOR)) {
+            throw new IllegalArgumentException(
+                    "중분류 code는 부모 code로 시작해야 합니다: " + code + " (부모: " + parent.code + ")");
         }
         return new Category(code, name, parent, LEAF_DEPTH, sortOrder);
     }

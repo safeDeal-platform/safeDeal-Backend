@@ -30,6 +30,9 @@ public class RequiredPropertyGuard {
     // 해석되지 않은 플레이스홀더는 "${...}" 형태 그대로 남는다.
     private static final Pattern UNRESOLVED = Pattern.compile("^\\$\\{.*}$");
 
+    private static final String MAIL_PROVIDER_KEY = "app.mail.provider";
+    private static final String LOG_MAIL_PROVIDER = "log";
+
     private static final List<String> REQUIRED_PROPERTIES = List.of(
             "spring.datasource.url",
             "spring.datasource.username",
@@ -39,7 +42,14 @@ public class RequiredPropertyGuard {
             "app.cors.allowed-origins",
             // 서버마다 달라야 하는 값. 같은 값이면 서버 2대가 한 consumer group에 묶여
             // 채팅 fan-out이 한 대에서만 처리된다.
-            "app.kafka.consumer-group.chat-fanout"
+            "app.kafka.consumer-group.chat-fanout",
+            // 빠뜨리면 토큰 서명 키가 없어 인증이 통째로 깨진다. 게다가 공용 설정에 기본값을
+            // 두지 않았으므로(의도) 여기서 못 잡으면 첫 로그인 요청에서야 드러난다.
+            "app.jwt.secret",
+            // 빠뜨리면 LoggingMailSender가 붙어 앱은 멀쩡히 뜨는데 인증·재설정 메일이 실제로
+            // 나가지 않고 수신자 주소와 링크가 운영 로그에 그대로 쌓인다. 아무도 에러를 못 본다.
+            // 값이 log인 경우도 아래에서 따로 막는다 — 있기만 해서는 부족하다.
+            MAIL_PROVIDER_KEY
     );
 
     private final Environment environment;
@@ -55,6 +65,16 @@ public class RequiredPropertyGuard {
                     "운영 기동에 필요한 설정이 비어 있거나 환경변수가 주입되지 않았습니다: " + missing
                             + " — 배포 환경변수(REDIS_HOST, KAFKA_BOOTSTRAP_SERVERS, CORS_ALLOWED_ORIGINS,"
                             + " INSTANCE_ID 등)를 확인하세요.");
+        }
+
+        // 값이 있는 것만으로는 부족하다. MAIL_PROVIDER=log로 배포하면 필수값 검사는 통과하고
+        // LoggingMailSender가 붙어, 메일이 나가지 않은 채 수신자 주소와 인증 링크가 운영
+        // 로그에 그대로 쌓인다. 운영에서 성립할 수 없는 값이므로 여기서 막는다.
+        if (LOG_MAIL_PROVIDER.equalsIgnoreCase(environment.getProperty(MAIL_PROVIDER_KEY))) {
+            throw new IllegalStateException(
+                    "운영에서는 " + MAIL_PROVIDER_KEY + "=" + LOG_MAIL_PROVIDER + "를 쓸 수 없습니다"
+                            + " — 메일이 발송되지 않고 수신자 주소가 로그에 남습니다."
+                            + " MAIL_PROVIDER를 resend로 설정하세요.");
         }
     }
 

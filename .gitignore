@@ -81,3 +81,7 @@ Desktop.ini
 *.swp
 *.swo
 *~
+
+### AI 코딩 도구 로컬 캐시 ###
+# Serena MCP가 생성하는 개인 캐시·메모리 — 개발자별 로컬 상태라 공유 대상 아님
+.serena/

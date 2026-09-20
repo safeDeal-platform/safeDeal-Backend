@@ -38,6 +38,13 @@ public class DevAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
+        // JWT 필터가 이미 인증을 끝냈다면 헤더 우회로 덮어쓰지 않는다. 진짜 토큰이 항상 이겨야
+        // 하고, 그래야 팀이 dev 헤더에서 실제 로그인으로 옮겨가는 동안 둘을 함께 켜둘 수 있다.
+        if (SecurityContextHolder.getContext().getAuthentication() != null) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         String userId = request.getHeader(HEADER_USER_ID);
         if (userId == null || userId.isBlank()) {
             filterChain.doFilter(request, response);

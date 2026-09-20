@@ -52,6 +52,11 @@ public class Base64CursorCodec implements CursorCodec {
             // 파서 예외 메시지는 내부 구조를 드러낸다.
             throw new BusinessException(CommonErrorCode.INVALID_INPUT, "잘못된 커서입니다.");
         }
+        if (payload == null) {
+            // 본문이 JSON null이면(Base64로 "bnVsbA") Jackson은 예외 없이 자바 null을 돌려준다.
+            // try 밖이라 아래 version() 호출이 NPE가 되고, 클라이언트 실수가 500으로 보고된다.
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT, "잘못된 커서입니다.");
+        }
         if (payload.version() != VERSION) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT, "지원하지 않는 커서입니다.");
         }

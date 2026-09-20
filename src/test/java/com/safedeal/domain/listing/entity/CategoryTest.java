@@ -63,6 +63,18 @@ class CategoryTest {
         }
 
         @Test
+        @DisplayName("중분류 code가 부모 code로 시작하지 않으면 막는다")
+        void childCodeMustCarryParentPrefix() {
+            Category digital = Category.root("DIGITAL", "디지털기기", 1);
+
+            // code 규약 {대분류}_{중분류}은 "부모를 옮기면 code도 바뀐다"를 보장한다.
+            // 이 검증이 없으면 부모만 조용히 옮겨져 정의와 어긋난 소속이 남는다.
+            assertThatThrownBy(() -> Category.child("FASHION_TOP", "상의", digital, 1))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("부모 code로 시작");
+        }
+
+        @Test
         @DisplayName("code나 name이 비면 만들 수 없다")
         void blankFields() {
             assertThatThrownBy(() -> Category.root("  ", "디지털기기", 1))

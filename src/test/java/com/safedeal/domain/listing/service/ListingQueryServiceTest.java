@@ -4,6 +4,7 @@ import com.safedeal.domain.listing.dto.ListingSummaryResponse;
 import com.safedeal.domain.listing.entity.Category;
 import com.safedeal.domain.listing.entity.ItemCondition;
 import com.safedeal.domain.listing.entity.Listing;
+import com.safedeal.domain.listing.entity.ListingStatus;
 import com.safedeal.domain.listing.repository.CategoryRepository;
 import com.safedeal.domain.listing.repository.ListingRepository;
 import com.safedeal.domain.listing.repository.ListingSearchCondition;
@@ -31,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -136,7 +138,8 @@ class ListingQueryServiceTest {
         assertThatThrownBy(() ->
                 service().getListings("cursor", null, null, null, null, null, null))
                 .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("커서");
+                // "커서"만 보면 필터 지문 거부("…이 커서를 사용할 수 없습니다")와도 겹쳐 사유를 가르지 못한다.
+                .hasMessageContaining("잘못된 커서입니다");
         verify(listingRepository, never()).findPublicPage(any());
     }
 
@@ -144,8 +147,10 @@ class ListingQueryServiceTest {
     @DisplayName("커서의 생성시각·id가 조회 조건으로 넘어간다")
     void passesCursorKeysetToRepository() {
         Instant last = Instant.parse("2026-09-01T00:00:00Z");
+        // 필터 없이 발급된 커서를 필터 없이 다시 쓰는 정상 흐름이다.
         when(cursorCodec.decode("cursor")).thenReturn(new CursorPayload(
-                Base64CursorCodec.VERSION, ListingQueryService.SORT_KEY, last, 7L, null, Instant.now()));
+                Base64CursorCodec.VERSION, ListingQueryService.SORT_KEY, last, 7L,
+                ListingQueryService.filterFingerprint(null, null, null, null, null), Instant.now()));
         when(listingRepository.findPublicPage(any())).thenReturn(List.of());
 
         service().getListings("cursor", null, null, null, null, null, null);
@@ -153,6 +158,110 @@ class ListingQueryServiceTest {
         ListingSearchCondition condition = captureCondition();
         assertThat(condition.lastCreatedAt()).isEqualTo(last);
         assertThat(condition.lastId()).isEqualTo(7L);
+    }
+
+    @Test
+    @DisplayName("다음 커서에는 이번 요청의 필터 지문이 실린다")
+    void issuedCursorCarriesFilterFingerprint() {
+        when(categoryRepository.findByCode("DIGITAL_PHONE")).thenReturn(Optional.of(leaf(10L)));
+        when(listingRepository.findPublicPage(any())).thenReturn(listings(4));
+        when(cursorCodec.encode(any())).thenReturn("next");
+
+        service().getListings(null, 3, "DIGITAL_PHONE", "서울특별시", "강남구", 1_000, 50_000);
+
+        ArgumentCaptor<CursorPayload> captor = ArgumentCaptor.forClass(CursorPayload.class);
+        verify(cursorCodec).encode(captor.capture());
+        // null이 실리면 다음 요청의 비교가 전부 어긋나 정상 흐름까지 거부된다.
+        assertThat(captor.getValue().filterFingerprint())
+                .isNotNull()
+                .isEqualTo(ListingQueryService.filterFingerprint(
+                        "DIGITAL_PHONE", "서울특별시", "강남구", 1_000, 50_000));
+    }
+
+    /**
+     * 기준 필터(스마트폰 · 서울 강남구 · 1천~5만 원)로 발급된 커서를 돌려주도록 코덱을 맞춘다.
+     * 아래 거부 테스트들은 이 기준에서 <b>필드 하나씩만</b> 바꿔, 지문 계산에서 어느 필드가 빠져도
+     * 그 필드의 테스트가 깨지게 한다. 지문을 같은 함수로 계산해 비교하는 테스트만으로는 함수가 필드를
+     * 빠뜨려도 기대값도 똑같이 틀려 통과하므로, "거부되는가"를 필드마다 직접 확인해야 한다.
+     */
+    private void givenCursorIssuedForBaseFilter() {
+        when(cursorCodec.decode("cursor")).thenReturn(new CursorPayload(
+                Base64CursorCodec.VERSION, ListingQueryService.SORT_KEY,
+                Instant.parse("2026-09-10T00:00:00Z"), 7L,
+                ListingQueryService.filterFingerprint("DIGITAL_PHONE", "서울특별시", "강남구", 1_000, 50_000),
+                Instant.now()));
+    }
+
+    private void assertRejectedAsFilterChanged(Runnable request) {
+        assertThatThrownBy(request::run)
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("검색 조건");
+        verify(listingRepository, never()).findPublicPage(any());
+    }
+
+    @Test
+    @DisplayName("카테고리를 바꾼 채 옛 커서를 쓰면 거부한다 — 그대로 쓰면 경계보다 최신인 매물이 조용히 빠진다")
+    void rejectsCursorWhenCategoryChanged() {
+        givenCursorIssuedForBaseFilter();
+        // 스마트폰으로 검색해 받은 커서를 태블릿 검색에 그대로 붙인 상황.
+        assertRejectedAsFilterChanged(() -> service().getListings(
+                "cursor", null, "DIGITAL_TABLET", "서울특별시", "강남구", 1_000, 50_000));
+    }
+
+    @Test
+    @DisplayName("시·도만 바뀌어도 거부한다")
+    void rejectsCursorWhenRegionSidoChanged() {
+        givenCursorIssuedForBaseFilter();
+        assertRejectedAsFilterChanged(() -> service().getListings(
+                "cursor", null, "DIGITAL_PHONE", "부산광역시", "강남구", 1_000, 50_000));
+    }
+
+    @Test
+    @DisplayName("시·군·구만 바뀌어도 거부한다")
+    void rejectsCursorWhenRegionSigunguChanged() {
+        givenCursorIssuedForBaseFilter();
+        assertRejectedAsFilterChanged(() -> service().getListings(
+                "cursor", null, "DIGITAL_PHONE", "서울특별시", "서초구", 1_000, 50_000));
+    }
+
+    @Test
+    @DisplayName("최소 가격만 바뀌어도 거부한다")
+    void rejectsCursorWhenMinPriceChanged() {
+        givenCursorIssuedForBaseFilter();
+        assertRejectedAsFilterChanged(() -> service().getListings(
+                "cursor", null, "DIGITAL_PHONE", "서울특별시", "강남구", 2_000, 50_000));
+    }
+
+    @Test
+    @DisplayName("최대 가격만 바뀌어도 거부한다")
+    void rejectsCursorWhenMaxPriceChanged() {
+        givenCursorIssuedForBaseFilter();
+        assertRejectedAsFilterChanged(() -> service().getListings(
+                "cursor", null, "DIGITAL_PHONE", "서울특별시", "강남구", 1_000, 60_000));
+    }
+
+    @Test
+    @DisplayName("카테고리 code의 대소문자만 다르면 거부하지 않는다 — DB가 대소문자를 무시해 결과가 같다")
+    void acceptsCursorWhenOnlyCategoryCaseDiffers() {
+        givenCursorIssuedForBaseFilter();
+        when(categoryRepository.findByCode("digital_phone")).thenReturn(Optional.of(leaf(10L)));
+        when(listingRepository.findPublicPage(any())).thenReturn(List.of());
+
+        // collation utf8mb4_0900_ai_ci 에서 "digital_phone"은 DIGITAL_PHONE 행으로 풀린다.
+        service().getListings("cursor", null, "digital_phone", "서울특별시", "강남구", 1_000, 50_000);
+
+        assertThat(captureCondition().lastId()).isEqualTo(7L);
+    }
+
+    @Test
+    @DisplayName("빈 문자열 필터와 필터 없음은 같은 조건이다 — 결과가 같은 요청을 거부하지 않는다")
+    void blankFilterIsSameAsAbsent() {
+        // 리포지토리가 빈 문자열을 "필터 없음"으로 처리하므로 지문도 둘을 같게 봐야 한다.
+        assertThat(ListingQueryService.filterFingerprint("", " ", null, null, null))
+                .isEqualTo(ListingQueryService.filterFingerprint(null, null, null, null, null));
+        // 반대로 값이 이어 붙어 같은 문자열이 되는 서로 다른 조건은 갈라야 한다.
+        assertThat(ListingQueryService.filterFingerprint("ab", "c", null, null, null))
+                .isNotEqualTo(ListingQueryService.filterFingerprint("a", "bc", null, null, null));
     }
 
     // ── 가격 범위 ─────────────────────────────────────────
@@ -178,6 +287,35 @@ class ListingQueryServiceTest {
         service().getListings(null, null, "DIGITAL_PHONE", null, null, null, null);
 
         assertThat(captureCondition().categoryIds()).containsExactly(10L);
+    }
+
+    @Test
+    @DisplayName("중분류를 내리면 그 code로 직접 찍어도 매물이 안 나가고, 되살리면 다시 나간다")
+    void leafCategoryFilterFollowsActiveFlag() {
+        // 같은 엔티티 한 개의 active만 뒤집어 두 번 조회한다. 서로 다른 객체로 나눠 쓰면
+        // "새로 만든 분류는 기본이 활성"이라는 것만 확인하게 되어(usesLeafCategoryIdDirectly와 중복)
+        // 비활성 검사가 실제로 active 값을 보고 갈리는지는 검증되지 않는다.
+        Category category = leaf(10L);
+        when(categoryRepository.findByCode("DIGITAL_PHONE")).thenReturn(Optional.of(category));
+        when(listingRepository.findPublicPage(any())).thenReturn(List.of());
+
+        category.deactivate();
+        service().getListings(null, null, "DIGITAL_PHONE", null, null, null, null);
+        category.activate();
+        service().getListings(null, null, "DIGITAL_PHONE", null, null, null, null);
+
+        // captureCondition()은 호출 1회만 허용하므로 여기서는 두 번의 호출을 모두 붙잡는다.
+        ArgumentCaptor<ListingSearchCondition> captor =
+                ArgumentCaptor.forClass(ListingSearchCondition.class);
+        verify(listingRepository, times(2)).findPublicPage(captor.capture());
+        List<ListingSearchCondition> calls = captor.getAllValues();
+
+        // 비활성일 때: 대분류로 걸렀을 때 비활성 자식이 빠지는 것과 결과가 같아야 한다. id를 그대로
+        // 넘기면 예전 링크·북마크로 들어온 요청에만 내려간 분류가 계속 열린다.
+        // 빈 목록이 아니라 -1L인 이유는 keepsFilterWhenRootHasNoActiveLeaf와 같다.
+        assertThat(calls.get(0).categoryIds()).isNotEmpty().containsExactly(-1L);
+        // 되살리면 같은 분류가 다시 나간다 — 비활성 검사가 활성 경로까지 막아버리지 않는다.
+        assertThat(calls.get(1).categoryIds()).containsExactly(10L);
     }
 
     @Test
@@ -262,5 +400,36 @@ class ListingQueryServiceTest {
         verify(cursorCodec).encode(captor.capture());
         assertThat(captor.getValue().lastId()).isEqualTo(3L);
         assertThat(captor.getValue().sort()).isEqualTo(ListingQueryService.SORT_KEY);
+    }
+
+    // ── 상세 조회 ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("카테고리가 내려가도 상세는 열어준다 — 목록에서 빠지는 것과 판단이 다른 것이 의도다")
+    void detailStaysOpenWhenCategoryIsDeactivated() {
+        // 목록(resolveCategoryIds)은 비활성 분류를 걸러내지만 상세는 막지 않는다. 내려간 것은
+        // 분류일 뿐 매물은 판매중이고, 여기서 404를 주면 채팅으로 흥정하던 구매자와 판매자 본인이
+        // 자기 매물을 못 본다. 이 판단을 "일관성"을 이유로 되돌리면 이 테스트가 깨진다.
+        Category retired = leaf(10L);
+        retired.deactivate();
+        Listing listing = Listing.register("01J00000000000000000000001", 1L, "아이폰", "설명",
+                950_000, retired, ItemCondition.USED, "서울특별시", "강남구", false);
+        when(listingRepository.findByPublicIdAndDeletedAtIsNull("01J00000000000000000000001"))
+                .thenReturn(Optional.of(listing));
+
+        assertThat(service().getListing("01J00000000000000000000001")).isNotNull();
+    }
+
+    @Test
+    @DisplayName("차단된 매물은 존재 자체를 알리지 않는다 — 404")
+    void blockedListingIsNotFound() {
+        Listing blocked = listing(1L, "01J00000000000000000000002");
+        ReflectionTestUtils.setField(blocked, "status", ListingStatus.BLOCKED);
+        when(listingRepository.findByPublicIdAndDeletedAtIsNull("01J00000000000000000000002"))
+                .thenReturn(Optional.of(blocked));
+
+        assertThatThrownBy(() -> service().getListing("01J00000000000000000000002"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("매물");
     }
 }

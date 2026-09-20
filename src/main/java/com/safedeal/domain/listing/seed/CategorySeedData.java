@@ -3,7 +3,7 @@ package com.safedeal.domain.listing.seed;
 import java.util.List;
 
 /**
- * 카테고리 마스터의 정의 원본. 대분류 11 / 중분류 49.
+ * 카테고리 마스터의 정의 원본. 대분류 12 / 중분류 52.
  *
  * <p>DB가 아니라 코드가 원본인 이유: 로컬은 {@code create-drop}이라 재기동마다 테이블이 비고,
  * 카테고리가 비면 매물 등록이 전부 실패한다. {@code data.sql}은 로컬에서만 돌고 운영
@@ -64,6 +64,14 @@ public final class CategorySeedData {
                     leaf("FURNITURE_STORAGE", "수납·선반"),
                     leaf("FURNITURE_DECO", "조명·소품")),
 
+            root("LIVING", "생활·주방",
+                    // 주방'가전'(전자레인지 등)은 APPLIANCE_KITCHEN이다. 여기는 그릇·냄비 같은
+                    // 비전자 용품이다. 정리·수납은 FURNITURE_STORAGE와 겹쳐 두지 않는다.
+                    leaf("LIVING_KITCHEN", "주방용품"),
+                    leaf("LIVING_DAILY", "생활잡화"),
+                    leaf("LIVING_BATH", "욕실·청소"),
+                    leaf("LIVING_TOOL", "공구·자재")),
+
             root("FASHION", "의류·잡화",
                     leaf("FASHION_MEN", "남성의류"),
                     leaf("FASHION_WOMEN", "여성의류"),
@@ -108,6 +116,5 @@ public final class CategorySeedData {
                     leaf("PET_SUPPLY", "용품")),
 
             root("ETC", "기타",
-                    leaf("ETC_LIFE", "생활용품"),
                     leaf("ETC_OTHER", "기타")));
 }

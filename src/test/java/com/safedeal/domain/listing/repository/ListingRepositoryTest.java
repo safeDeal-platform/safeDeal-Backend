@@ -64,6 +64,19 @@ class ListingRepositoryTest extends IntegrationTestSupport {
         entityManager.clear();
     }
 
+    /**
+     * 모든 행의 생성 시각을 한 값으로 맞춘다. keyset의 tie-break 분기
+     * ({@code created_at = :c AND id < :id})는 시각이 같아야만 실행되는데, 저장 순서만으로는
+     * 시각이 갈릴 수 있어 그 분기를 지나치게 된다. {@code markDeleted}와 같은 이유로 컬럼을 직접 찍는다.
+     */
+    private void forceSameCreatedAt() {
+        entityManager.createNativeQuery(
+                        "UPDATE listings SET created_at = '2026-09-01 00:00:00.000000'")
+                .executeUpdate();
+        entityManager.flush();
+        entityManager.clear();
+    }
+
     private ListingSearchCondition cond(int size) {
         return new ListingSearchCondition(List.of(), null, null, null, null, null, null, size);
     }
@@ -87,6 +100,31 @@ class ListingRepositoryTest extends IntegrationTestSupport {
         save("A", 10_000, phone, "강남구");
         save("B", 20_000, phone, "강남구");
         save("C", 30_000, phone, "강남구");
+
+        List<Listing> first = listingRepository.findPublicPage(cond(2));
+        Listing last = first.get(1);
+
+        List<Listing> second = listingRepository.findPublicPage(new ListingSearchCondition(
+                List.of(), null, null, null, null, last.getCreatedAt(), last.getId(), 2));
+
+        assertThat(second).extracting(Listing::getTitle).containsExactly("A");
+        assertThat(second).extracting(Listing::getId).doesNotContain(last.getId());
+    }
+
+    @Test
+    @DisplayName("생성 시각이 같아도 id로 순서가 확정된다 — 겹치거나 건너뛰지 않는다")
+    void cursorBreaksTieByIdWhenCreatedAtIsEqual() {
+        save("A", 10_000, phone, "강남구");
+        save("B", 20_000, phone, "강남구");
+        save("C", 30_000, phone, "강남구");
+        // 위 세 건은 밀리초 단위로 시각이 갈릴 수 있어 tie-break 분기를 지나칠 수 있다.
+        // created_at을 강제로 같게 만들어야 afterCursor의 "created_at = :c AND id < :id"가 실행된다.
+        forceSameCreatedAt();
+
+        List<Listing> all = listingRepository.findPublicPage(cond(10));
+        // 전제부터 확인한다. 시각이 실제로 같지 않으면 아래는 tie-break가 아니라 시각 정렬을 본 셈이 된다.
+        assertThat(all).extracting(Listing::getCreatedAt).containsOnly(all.get(0).getCreatedAt());
+        assertThat(all).extracting(Listing::getTitle).containsExactly("C", "B", "A");
 
         List<Listing> first = listingRepository.findPublicPage(cond(2));
         Listing last = first.get(1);

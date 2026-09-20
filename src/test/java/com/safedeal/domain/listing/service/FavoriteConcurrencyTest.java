@@ -134,7 +134,8 @@ class FavoriteConcurrencyTest extends IntegrationTestSupport {
         // 매물 가격을 올려두지 않으면 모든 스레드가 기준가와 같은 값을 써서, ON DUPLICATE KEY
         // UPDATE를 덮어쓰기로 바꿔도 테스트가 통과한다. 값이 달라야 가드가 검증된다.
         Listing listing = listingRepository.findByPublicId(PUBLIC_ID).orElseThrow();
-        listing.update("아이폰", "설명", 1_200_000, phone, ItemCondition.USED, LocalDate.now());
+        listing.update("아이폰", "설명", 1_200_000, phone, ItemCondition.USED,
+                "서울특별시", "강남구", LocalDate.now());
         listingRepository.saveAndFlush(listing);
 
         runConcurrently(() -> favoriteCommandService.add(USER, PUBLIC_ID));
