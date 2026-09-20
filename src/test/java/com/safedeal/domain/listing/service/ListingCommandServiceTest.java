@@ -14,10 +14,13 @@ import com.safedeal.domain.listing.entity.ListingStatus;
 import com.safedeal.domain.listing.repository.CategoryRepository;
 import com.safedeal.domain.listing.repository.ListingRepository;
 import com.safedeal.global.exception.BusinessException;
+import com.safedeal.global.exception.ErrorCode;
 import com.safedeal.global.util.PublicIdGenerator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -25,13 +28,16 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -161,16 +167,22 @@ class ListingCommandServiceTest {
         return listing;
     }
 
-    private Object errorCodeOf(Runnable call) {
-        return assertThatThrownBy(call::run)
-                .isInstanceOf(BusinessException.class)
-                .actual() instanceof BusinessException e ? e.getErrorCode() : null;
+    private ErrorCode errorCodeOf(ThrowingCallable call) {
+        Throwable thrown = catchThrowable(call);
+        assertThat(thrown).isInstanceOf(BusinessException.class);
+        return ((BusinessException) thrown).getErrorCode();
     }
 
     @Test
-    @DisplayName("수정하면 값이 바뀌고 flush 뒤의 version을 돌려준다")
+    @DisplayName("수정하면 값이 바뀌고, flush로 올라간 뒤의 version을 돌려준다")
     void updateAppliesChanges() {
         Listing listing = ownedListing(ListingStatus.ACTIVE, 3L);
+        // 실제로는 flush 시점에 Hibernate가 version을 올린다. 그 시점을 흉내 낸다 —
+        // 응답을 flush보다 먼저 만들면 클라이언트가 옛 번호를 받아 다음 수정이 409가 된다.
+        doAnswer(invocation -> {
+            ReflectionTestUtils.setField(listing, "version", 4L);
+            return null;
+        }).when(listingRepository).flush();
 
         ListingUpdateResponse response =
                 listingCommandService.update(1L, PUBLIC_ID, updateRequest(900_000, 3L));
@@ -178,7 +190,7 @@ class ListingCommandServiceTest {
         assertThat(listing.getTitle()).isEqualTo("수정 제목");
         assertThat(listing.getPrice()).isEqualTo(900_000);
         assertThat(response.publicId()).isEqualTo(PUBLIC_ID);
-        verify(listingRepository).flush();
+        assertThat(response.version()).isEqualTo(4L);
     }
 
     @Test
@@ -272,13 +284,19 @@ class ListingCommandServiceTest {
 
         listingCommandService.changeStatus(1L, PUBLIC_ID,
                 new ListingStatusChangeRequest(ListingStatusChangeRequest.Action.MARK_SOLD));
-        verify(listingRepository).markSoldByOwner(any(), anyLong(), any(Instant.class));
+        // id와 sellerId 자리가 뒤바뀌어도 any()로는 잡히지 않으므로 값을 고정한다.
+        verify(listingRepository).markSoldByOwner(eq(55L), eq(1L), any(Instant.class));
         verify(listingRepository, never())
                 .restoreManualSoldByOwner(any(), anyLong(), any(Instant.class));
 
         listingCommandService.changeStatus(1L, PUBLIC_ID, new ListingStatusChangeRequest(
                 ListingStatusChangeRequest.Action.RESTORE_MANUAL_SOLD));
-        verify(listingRepository).restoreManualSoldByOwner(any(), anyLong(), any(Instant.class));
+        ArgumentCaptor<Instant> threshold = ArgumentCaptor.forClass(Instant.class);
+        verify(listingRepository).restoreManualSoldByOwner(eq(55L), eq(1L), threshold.capture());
+        // 정책: 수동 판매완료는 24시간 안에서만 되돌린다. 창이 미래이거나 24시간이 아니면 안 된다.
+        assertThat(threshold.getValue()).isBetween(
+                Instant.now().minus(Duration.ofHours(24)).minusSeconds(30),
+                Instant.now().minus(Duration.ofHours(24)).plusSeconds(30));
     }
 
     @Test

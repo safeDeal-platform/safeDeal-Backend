@@ -334,6 +334,47 @@ class ListingStatusTransitionTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("판매완료·되돌리기·삭제는 version과 updated_at을 함께 갱신한다")
+    void transitionsTouchVersionAndUpdatedAt() {
+        Listing listing = saveActive("01M00000000000000000000020");
+        String publicId = listing.getPublicId();
+        Long v0 = listing.getVersion();
+        Instant t0 = listingRepository.findByPublicId(publicId).orElseThrow().getUpdatedAt();
+
+        listingRepository.markSoldByOwner(listing.getId(), SELLER_ID, Instant.now());
+        Listing sold = listingRepository.findByPublicId(publicId).orElseThrow();
+        listingRepository.restoreManualSoldByOwner(
+                listing.getId(), SELLER_ID, restoreThreshold());
+        Listing restored = listingRepository.findByPublicId(publicId).orElseThrow();
+        listingRepository.softDeleteByOwner(
+                listing.getId(), SELLER_ID, Instant.now(), ListingStatus.ACTIVE);
+        Listing deleted = listingRepository.findByPublicId(publicId).orElseThrow();
+
+        assertThat(sold.getVersion()).isEqualTo(v0 + 1);
+        assertThat(restored.getVersion()).isEqualTo(v0 + 2);
+        assertThat(deleted.getVersion()).isEqualTo(v0 + 3);
+        assertThat(sold.getUpdatedAt()).isAfter(t0);
+        assertThat(restored.getUpdatedAt()).isAfter(sold.getUpdatedAt());
+        assertThat(deleted.getUpdatedAt()).isAfter(restored.getUpdatedAt());
+    }
+
+    @Test
+    @DisplayName("판매 후 삭제된 매물은 판매 기록이 남아 있어도 되돌릴 수 없다")
+    void deletedSoldListingCannotBeRestored() {
+        Listing listing = saveActive("01M00000000000000000000021");
+        listingRepository.markSoldByOwner(listing.getId(), SELLER_ID, Instant.now());
+        listingRepository.softDeleteByOwner(
+                listing.getId(), SELLER_ID, Instant.now(), ListingStatus.SOLD);
+
+        int affected = listingRepository.restoreManualSoldByOwner(
+                listing.getId(), SELLER_ID, restoreThreshold());
+
+        assertThat(affected).isZero();
+        assertThat(listingRepository.findByPublicId(listing.getPublicId()).orElseThrow()
+                .getStatus()).isEqualTo(ListingStatus.DELETED);
+    }
+
+    @Test
     @DisplayName("삭제는 읽어 둔 상태 그대로일 때만 되고, 판매 기록은 남는다")
     void softDeleteKeepsSoldRecord() {
         Listing listing = saveActive("01M00000000000000000000017");
