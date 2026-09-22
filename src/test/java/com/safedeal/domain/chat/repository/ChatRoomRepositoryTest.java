@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,5 +53,62 @@ class ChatRoomRepositoryTest extends IntegrationTestSupport {
         assertThatThrownBy(() -> chatRoomRepository.saveAndFlush(
                 ChatRoom.open("01J3ARSNIPROOM0000000002", 10L, 20L, 30L)))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("구매자·판매자 둘 다 public_id + 참여자 조건으로 찾아진다")
+    void findsByPublicIdAndParticipant_forBothSides() {
+        ChatRoom saved = chatRoomRepository.saveAndFlush(
+                ChatRoom.open("01J3ARSNIPROOM0000000001", 10L, 20L, 30L));
+
+        assertThat(chatRoomRepository.findByPublicIdAndParticipant(saved.getPublicId(), 20L))
+                .isPresent();
+        assertThat(chatRoomRepository.findByPublicIdAndParticipant(saved.getPublicId(), 30L))
+                .isPresent();
+    }
+
+    @Test
+    @DisplayName("참여자가 아니면 방이 존재해도 빈 값이다 (존재 여부를 알려주지 않는다)")
+    void findByPublicIdAndParticipant_nonParticipant_isEmpty() {
+        ChatRoom saved = chatRoomRepository.saveAndFlush(
+                ChatRoom.open("01J3ARSNIPROOM0000000001", 10L, 20L, 30L));
+
+        assertThat(chatRoomRepository.findByPublicIdAndParticipant(saved.getPublicId(), 999L))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("구매자 읽음 커서는 기존 값보다 클 때만 전진한다")
+    void markBuyerRead_advancesOnlyWhenGreater() {
+        ChatRoom saved = chatRoomRepository.saveAndFlush(
+                ChatRoom.open("01J3ARSNIPROOM0000000001", 10L, 20L, 30L));
+        assertThat(saved.getBuyerLastReadMessageId()).isZero();
+
+        int updated = chatRoomRepository.markBuyerRead(saved.getId(), 5L, Instant.now());
+        assertThat(updated).isEqualTo(1);
+
+        int noop = chatRoomRepository.markBuyerRead(saved.getId(), 5L, Instant.now());
+        assertThat(noop).isZero();
+
+        int regress = chatRoomRepository.markBuyerRead(saved.getId(), 3L, Instant.now());
+        assertThat(regress).isZero();
+
+        ChatRoom reloaded = chatRoomRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloaded.getBuyerLastReadMessageId()).isEqualTo(5L);
+    }
+
+    @Test
+    @DisplayName("판매자 읽음 커서는 구매자 커서와 독립적으로 전진한다")
+    void markSellerRead_isIndependentOfBuyerCursor() {
+        ChatRoom saved = chatRoomRepository.saveAndFlush(
+                ChatRoom.open("01J3ARSNIPROOM0000000001", 10L, 20L, 30L));
+
+        chatRoomRepository.markBuyerRead(saved.getId(), 5L, Instant.now());
+        int updated = chatRoomRepository.markSellerRead(saved.getId(), 7L, Instant.now());
+
+        assertThat(updated).isEqualTo(1);
+        ChatRoom reloaded = chatRoomRepository.findById(saved.getId()).orElseThrow();
+        assertThat(reloaded.getBuyerLastReadMessageId()).isEqualTo(5L);
+        assertThat(reloaded.getSellerLastReadMessageId()).isEqualTo(7L);
     }
 }

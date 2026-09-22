@@ -74,11 +74,25 @@ public class ChatRoom extends MutableEntity {
     @Column(name = "seller_hidden_at")
     private Instant sellerHiddenAt;
 
+    /**
+     * 이 방에서 구매자가 마지막으로 읽은 메시지 id(정책 "채팅 — 재민": 메시지별 is_read
+     * 대신 방에 커서 2개). 기본값 0 — {@code null}로 두면 조건부 갱신의 {@code < 새값}
+     * 비교가 SQL에서 UNKNOWN이 돼 첫 갱신이 영원히 실패한다(무엇과도 비교 불가). 0은
+     * "존재할 수 없는 messageId"이자 "아직 아무것도 안 읽음"을 동시에 의미해 자연스럽다.
+     */
+    @Column(name = "buyer_last_read_message_id", nullable = false)
+    private Long buyerLastReadMessageId = 0L;
+
+    @Column(name = "seller_last_read_message_id", nullable = false)
+    private Long sellerLastReadMessageId = 0L;
+
     private ChatRoom(String publicId, Long listingId, Long buyerId, Long sellerId) {
         this.publicId = publicId;
         this.listingId = listingId;
         this.buyerId = buyerId;
         this.sellerId = sellerId;
+        this.buyerLastReadMessageId = 0L;
+        this.sellerLastReadMessageId = 0L;
     }
 
     public static ChatRoom open(String publicId, Long listingId, Long buyerId, Long sellerId) {
@@ -96,5 +110,21 @@ public class ChatRoom extends MutableEntity {
      */
     public void rejoinAsBuyer() {
         this.buyerHiddenAt = null;
+    }
+
+    /**
+     * 구매자·판매자 둘 중 하나인지(참여자 판정, {@code Listing.isOwnedBy}와 같은 형태).
+     * 메시지 저장 시 "누가 보냈는지"로 어느 쪽 커서를 갱신할지 가르는 데 쓴다.
+     */
+    public boolean isBuyer(Long userId) {
+        return buyerId.equals(userId);
+    }
+
+    public boolean isSeller(Long userId) {
+        return sellerId.equals(userId);
+    }
+
+    public boolean isParticipant(Long userId) {
+        return isBuyer(userId) || isSeller(userId);
     }
 }
