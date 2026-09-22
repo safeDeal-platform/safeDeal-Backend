@@ -52,8 +52,8 @@ class ListingRepositoryTest extends IntegrationTestSupport {
     }
 
     /**
-     * 소프트 삭제된 상태를 만든다. 엔티티에 {@code softDelete}가 있어도 이 PR에는 그것을
-     * 호출하는 경로가 없어, 가격 CHECK 검증과 같은 방식으로 컬럼을 직접 찍는다.
+     * 소프트 삭제된 상태를 만든다. 서비스는 이제 조건부 UPDATE({@code softDeleteByOwner})로
+     * 지우지만, 이 테스트는 조회 조건만 보면 되므로 컬럼을 직접 찍는 편이 원인 분리에 낫다.
      */
     private void markDeleted(Listing listing) {
         entityManager.createNativeQuery(

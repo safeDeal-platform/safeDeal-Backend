@@ -1,5 +1,7 @@
 package com.safedeal.domain.listing.entity;
 
+import java.time.LocalDate;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -81,6 +83,116 @@ class ListingTest {
         assertThat(listing.getTitle()).isEqualTo("아이폰");
         assertThat(listing.getRegionSido()).isEqualTo("서울특별시");
         assertThat(listing.getRegionSigungu()).isEqualTo("강남구");
+    }
+
+    @Test
+    @DisplayName("수정으로 지역을 바꿀 수 있다")
+    void updateChangesRegion() {
+        Listing listing = register(900_000, leaf(), false);
+        Category category = listing.getCategory();
+
+        // 등록 때 시/군/구를 잘못 넣으면 여기서 못 고칠 경우 삭제 후 재등록밖에 방법이 없다.
+        listing.update("t", "d", 900_000, category, ItemCondition.USED,
+                " 경기도 ", " 성남시 분당구 ", LocalDate.of(2026, 8, 31));
+
+        assertThat(listing.getRegionSido()).isEqualTo("경기도");
+        assertThat(listing.getRegionSigungu()).isEqualTo("성남시 분당구");
+    }
+
+    @Test
+    @DisplayName("수정에 지역이 비면 거부한다")
+    void updateRejectsBlankRegion() {
+        Listing listing = register(900_000, leaf(), false);
+        Category category = listing.getCategory();
+
+        assertThatThrownBy(() -> listing.update("t", "d", 900_000, category,
+                ItemCondition.USED, " ", "강남구", LocalDate.of(2026, 8, 31)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("regionSido");
+    }
+
+    @Test
+    @DisplayName("가격 인하는 하루 2회까지만 된다")
+    void priceDropLimit() {
+        Listing listing = register(900_000, leaf(), false);
+        LocalDate today = LocalDate.of(2026, 8, 31);
+        Category category = listing.getCategory();
+
+        listing.update("t", "d", 800_000, category, ItemCondition.USED, "서울특별시", "강남구", today);
+        listing.update("t", "d", 700_000, category, ItemCondition.USED, "서울특별시", "강남구", today);
+
+        assertThatThrownBy(() ->
+                listing.update("t", "d", 600_000, category, ItemCondition.USED, "서울특별시", "강남구", today))
+                .isInstanceOf(Listing.PriceDropLimitExceededException.class);
+        assertThat(listing.getPrice()).isEqualTo(700_000);
+    }
+
+    @Test
+    @DisplayName("날짜가 바뀌면 인하 횟수가 리셋된다")
+    void priceDropResetsNextDay() {
+        Listing listing = register(900_000, leaf(), false);
+        Category category = listing.getCategory();
+        LocalDate day1 = LocalDate.of(2026, 8, 31);
+
+        listing.update("t", "d", 800_000, category, ItemCondition.USED, "서울특별시", "강남구", day1);
+        listing.update("t", "d", 700_000, category, ItemCondition.USED, "서울특별시", "강남구", day1);
+
+        listing.update("t", "d", 600_000, category, ItemCondition.USED, "서울특별시", "강남구", day1.plusDays(1));
+
+        assertThat(listing.getPrice()).isEqualTo(600_000);
+        assertThat(listing.getPriceDropCount()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("가격을 올리거나 그대로 두면 인하 횟수를 세지 않는다")
+    void raisingPriceDoesNotCount() {
+        Listing listing = register(900_000, leaf(), false);
+        Category category = listing.getCategory();
+        LocalDate today = LocalDate.of(2026, 8, 31);
+
+        listing.update("t", "d", 950_000, category, ItemCondition.USED, "서울특별시", "강남구", today);
+        listing.update("t", "d", 950_000, category, ItemCondition.USED, "서울특별시", "강남구", today);
+        listing.update("t", "d", 990_000, category, ItemCondition.USED, "서울특별시", "강남구", today);
+
+        assertThat(listing.getPriceDropCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("삭제하면 상태와 삭제 시각이 함께 바뀐다")
+    void softDelete() {
+        Listing listing = register(900_000, leaf(), false);
+
+        listing.softDelete(java.time.Instant.parse("2026-08-31T00:00:00Z"));
+
+        assertThat(listing.isDeleted()).isTrue();
+        assertThat(listing.getStatus()).isEqualTo(ListingStatus.DELETED);
+        assertThat(listing.isListable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("검증 대기 매물도 판매자가 삭제할 수 있다 - 철회 경로")
+    void pendingCanBeDeleted() {
+        Listing listing = register(900_000, leaf(), true);
+        java.time.Instant now = java.time.Instant.now();
+
+        // 재촬영 요구를 받고 그만두려는 판매자의 경로. 막으면 그 매물이 검증 대기로 영원히
+        // 남는다. 수정은 이미 허용돼 있어(isEditable) 삭제만 막히는 비대칭이기도 했다.
+        listing.softDelete(now);
+
+        assertThat(listing.isDeleted()).isTrue();
+        assertThat(listing.getDeletedAt()).isEqualTo(now);
+    }
+
+    @Test
+    @DisplayName("이미 삭제된 매물을 다시 지워도 조용히 넘어간다")
+    void deleteIsIdempotent() {
+        Listing listing = register(900_000, leaf(), false);
+        java.time.Instant first = java.time.Instant.parse("2026-08-31T00:00:00Z");
+        listing.softDelete(first);
+
+        listing.softDelete(java.time.Instant.parse("2026-09-01T00:00:00Z"));
+
+        assertThat(listing.getDeletedAt()).isEqualTo(first);
     }
 
     @Test

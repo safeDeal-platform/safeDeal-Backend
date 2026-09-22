@@ -35,10 +35,16 @@ class ListingStatusTest {
     }
 
     @Test
-    @DisplayName("정책에 없는 전이는 열지 않는다 - 초안·검증대기에서 바로 삭제 불가")
+    @DisplayName("정책에 없는 전이는 열지 않는다 - 초안에서 바로 삭제 불가")
     void undocumentedTransitionsClosed() {
+        // DRAFT는 아직 게시 전이라 삭제할 대상이 없다. 공개된 적 없는 초안은 폐기지 삭제가 아니다.
         assertThat(ListingStatus.DRAFT.canTransitionTo(ListingStatus.DELETED)).isFalse();
-        assertThat(ListingStatus.PENDING_VERIFICATION.canTransitionTo(ListingStatus.DELETED)).isFalse();
+    }
+
+    @Test
+    @DisplayName("검증 대기 매물은 삭제로 내릴 수 있다 - 판매자 철회 경로")
+    void pendingCanBeDeleted() {
+        assertThat(ListingStatus.PENDING_VERIFICATION.canTransitionTo(ListingStatus.DELETED)).isTrue();
     }
 
     @Test

@@ -11,7 +11,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -94,6 +96,49 @@ class ApiContractTest extends IntegrationTestSupport {
         mockMvc.perform(post("/api/categories")
                         .contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("내 찜 목록은 화이트리스트가 아니다 — 인증 없이 401")
+    void myFavorites_requiresAuth() throws Exception {
+        mockMvc.perform(get("/api/users/me/favorites"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("C005"));
+    }
+
+    @Test
+    @DisplayName("찜 등록은 화이트리스트가 아니다 — 매물 상세가 공개라고 하위 경로까지 열리지 않는다")
+    void favoriteAdd_requiresAuth() throws Exception {
+        mockMvc.perform(post("/api/listings/01J3A/favorite"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("C005"));
+    }
+
+    @Test
+    @DisplayName("찜 해제도 인증이 필요하다 — 메서드 단위 매처가 추가될 때 뚫리는 쪽이다")
+    void favoriteRemove_requiresAuth() throws Exception {
+        mockMvc.perform(delete("/api/listings/01J3A/favorite"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("C005"));
+    }
+
+    @Test
+    @DisplayName("매물 수정·삭제·상태 변경은 GET만 공개된 같은 경로여도 인증이 필요하다")
+    void listingWrites_requireAuth() throws Exception {
+        // 상세(GET)와 같은 경로라 매처에서 HttpMethod.GET 한정이 빠지면 익명으로 열린다.
+        // 그때는 컨트롤러가 user.userId()에서 NPE(500)가 나므로 401 단언이 그 회귀를 잡는다.
+        String body = "{}";
+        mockMvc.perform(patch("/api/listings/01J3A")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("C005"));
+        mockMvc.perform(delete("/api/listings/01J3A"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("C005"));
+        mockMvc.perform(patch("/api/listings/01J3A/status")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("C005"));
     }
 
     // ── requestId ─────────────────────────────────────────────

@@ -432,4 +432,17 @@ class ListingQueryServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("매물");
     }
+
+    @Test
+    @DisplayName("상세 응답은 엔티티의 version을 그대로 싣는다 - 없으면 첫 수정 요청을 만들 수 없다")
+    void detailResponseCarriesEntityVersion() {
+        Category root = Category.root("DIGITAL", "디지털기기", 1);
+        Category leaf = Category.child("DIGITAL_PHONE", "스마트폰", root, 1);
+        Listing listing = Listing.register("01J00000000000000000000003", 1L, "아이폰", "설명",
+                950_000, leaf, ItemCondition.USED, "서울특별시", "강남구", false);
+        ReflectionTestUtils.setField(listing, "version", 7L);
+
+        assertThat(com.safedeal.domain.listing.dto.ListingDetailResponse.from(listing).version())
+                .isEqualTo(7L);
+    }
 }
