@@ -138,8 +138,14 @@ class FavoriteConcurrencyTest extends IntegrationTestSupport {
                 "서울특별시", "강남구", LocalDate.now());
         listingRepository.saveAndFlush(listing);
 
-        runConcurrently(() -> favoriteCommandService.add(USER, PUBLIC_ID));
+        List<Throwable> failures =
+                runConcurrently(() -> favoriteCommandService.add(USER, PUBLIC_ID));
 
+        // 실패를 버리면, 가격이 오른 뒤라 재찜이 전부 실패해도 기존 기준가가 그대로 남아
+        // 이 검증을 우연히 통과한다. 실패가 없어야 "덮어쓰지 않았다"는 결론이 유효하다.
+        assertThat(failures)
+                .withFailMessage("동시 재찜에서 예외가 났다: %s", failures)
+                .isEmpty();
         assertThat(listingFavoriteRepository.findByUserIdAndListing(USER, listing).orElseThrow()
                 .getNotifyBasePrice()).isEqualTo(950_000);
     }

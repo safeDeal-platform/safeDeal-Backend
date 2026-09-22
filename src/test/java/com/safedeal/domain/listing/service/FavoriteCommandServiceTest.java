@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -135,7 +136,8 @@ class FavoriteCommandServiceTest {
 
         assertThat(favoriteCommandService.remove(2L, PUBLIC_ID).favorited()).isFalse();
         // 매물을 조회하지 않으므로, 삭제된 매물(찜 목록에 남아 있어 지울 수 있어야 함)도
-        // 없던 매물과 같은 경로를 탄다.
-        verify(listingRepository, never()).findByPublicId(any());
+        // 없던 매물과 같은 경로를 탄다. findByPublicId 하나만 금지하면 findByPublicIdAndDeletedAtIsNull
+        // 같은 다른 조회 메서드가 새로 붙어도 못 잡으므로, listingRepository 자체를 안 건드렸는지 본다.
+        verifyNoInteractions(listingRepository);
     }
 }
