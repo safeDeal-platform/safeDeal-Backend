@@ -26,6 +26,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -158,11 +160,30 @@ class ChatRoomCreatorTest {
     }
 
     @Test
-    @DisplayName("숨겨져 있던 기존 방에 재진입하면 buyerHiddenAt이 복구된다")
-    void open_existingRoom_rejoinsAsBuyer() {
+    @DisplayName("숨겨져 있던 기존 방에 재진입하면 조건부 UPDATE로 복구한다 (엔티티 setter/더티체킹이 아니다)")
+    void open_existingHiddenRoom_rejoinsViaConditionalUpdate() {
         Listing listing = listing(ListingStatus.ACTIVE);
         ChatRoom existing = ChatRoom.open("01J3ARSNIPROOM0000000001", LISTING_ID, BUYER_ID, SELLER_ID);
+        ReflectionTestUtils.setField(existing, "id", 77L);
         ReflectionTestUtils.setField(existing, "buyerHiddenAt", Instant.parse("2026-09-01T00:00:00Z"));
+        when(listingRepository.findByPublicIdIncludingDeleted(LISTING_PUBLIC_ID))
+                .thenReturn(Optional.of(listing));
+        when(chatRoomRepository.findByBuyerIdAndListingId(BUYER_ID, LISTING_ID))
+                .thenReturn(Optional.of(existing));
+
+        ChatRoomCreateResponse response = chatRoomCreator.open(BUYER_ID, request());
+
+        verify(chatRoomRepository).rejoinAsBuyer(eq(77L), any(Instant.class));
+        assertThat(response.created()).isFalse();
+        assertThat(response.roomId()).isEqualTo("01J3ARSNIPROOM0000000001");
+    }
+
+    @Test
+    @DisplayName("이미 보이는 기존 방이면 복구 쿼리 자체를 보내지 않는다")
+    void open_existingVisibleRoom_doesNotIssueRejoinUpdate() {
+        Listing listing = listing(ListingStatus.ACTIVE);
+        ChatRoom existing = ChatRoom.open("01J3ARSNIPROOM0000000001", LISTING_ID, BUYER_ID, SELLER_ID);
+        ReflectionTestUtils.setField(existing, "id", 77L);
         when(listingRepository.findByPublicIdIncludingDeleted(LISTING_PUBLIC_ID))
                 .thenReturn(Optional.of(listing));
         when(chatRoomRepository.findByBuyerIdAndListingId(BUYER_ID, LISTING_ID))
@@ -170,7 +191,7 @@ class ChatRoomCreatorTest {
 
         chatRoomCreator.open(BUYER_ID, request());
 
-        assertThat(existing.getBuyerHiddenAt()).isNull();
+        verify(chatRoomRepository, never()).rejoinAsBuyer(anyLong(), any());
     }
 
     @Test

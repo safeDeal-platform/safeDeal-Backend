@@ -28,6 +28,20 @@ public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
             @Param("publicId") String publicId, @Param("userId") Long userId);
 
     /**
+     * 구매자 쪽 숨김을 되돌린다(API 명세서 CHT-1 "숨김 상태였다면 재진입 시 복구").
+     *
+     * <p><b>엔티티를 읽어 필드를 바꾸는(더티체킹) 방식이 아니라 이 조건부 UPDATE다.</b>
+     * 더티체킹은 그 행의 컬럼 <i>전부</i>를 처음 읽은 값으로 다시 쓴다 — 그 사이 다른
+     * 트랜잭션이 올려둔 읽음 커서({@link #markSellerRead})가 옛 값으로 되돌아간다(lost update).
+     * 이 쿼리는 {@code buyer_hidden_at} 한 컬럼만 건드리고, 이미 보이는 상태면 0행이라
+     * 몇 번을 호출해도 결과가 같다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update ChatRoom r set r.buyerHiddenAt = null, r.updatedAt = :now "
+            + "where r.id = :roomId and r.buyerHiddenAt is not null")
+    int rejoinAsBuyer(@Param("roomId") Long roomId, @Param("now") Instant now);
+
+    /**
      * 구매자 읽음 커서를 조건부로 전진시킨다(정책 "채팅 — 재민": WHERE last_read < 새값,
      * 역행·위변조 방지). 영향 행이 0이면 이미 그 값 이상으로 읽은 상태라는 뜻이라 실패가
      * 아니라 정상적인 no-op이다.

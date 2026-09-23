@@ -2,17 +2,14 @@ package com.safedeal.domain.chat.entity;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
-
-import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ChatRoomTest {
 
     @Test
-    @DisplayName("open()은 전달한 값 그대로 필드를 채우고, 숨김 시각은 둘 다 null이다")
-    void open_mapsFieldsAndStartsVisible() {
+    @DisplayName("open()은 전달한 값 그대로 필드를 채우고, 숨김 시각은 null·읽음 커서는 0으로 시작한다")
+    void open_mapsFieldsAndStartsVisibleWithZeroCursors() {
         ChatRoom room = ChatRoom.open("01J3ARSNIPROOM0000000001", 10L, 20L, 30L);
 
         assertThat(room.getPublicId()).isEqualTo("01J3ARSNIPROOM0000000001");
@@ -21,28 +18,22 @@ class ChatRoomTest {
         assertThat(room.getSellerId()).isEqualTo(30L);
         assertThat(room.getBuyerHiddenAt()).isNull();
         assertThat(room.getSellerHiddenAt()).isNull();
+        // 0이어야 한다 — null이면 조건부 UPDATE의 "< 새값" 비교가 UNKNOWN이 돼 첫 갱신이 영원히 실패한다.
+        assertThat(room.getBuyerLastReadMessageId()).isZero();
+        assertThat(room.getSellerLastReadMessageId()).isZero();
     }
 
     @Test
-    @DisplayName("rejoinAsBuyer()는 숨겨져 있던 buyerHiddenAt만 null로 되돌린다")
-    void rejoinAsBuyer_clearsOnlyBuyerHidden() {
-        ChatRoom room = ChatRoom.open("01J3ARSNIPROOM0000000001", 10L, 20L, 30L);
-        ReflectionTestUtils.setField(room, "buyerHiddenAt", Instant.parse("2026-09-01T00:00:00Z"));
-        ReflectionTestUtils.setField(room, "sellerHiddenAt", Instant.parse("2026-09-02T00:00:00Z"));
-
-        room.rejoinAsBuyer();
-
-        assertThat(room.getBuyerHiddenAt()).isNull();
-        assertThat(room.getSellerHiddenAt()).isEqualTo(Instant.parse("2026-09-02T00:00:00Z"));
-    }
-
-    @Test
-    @DisplayName("이미 보이는 방에 rejoinAsBuyer()를 다시 호출해도 그대로 null이다 (멱등)")
-    void rejoinAsBuyer_isIdempotentWhenAlreadyVisible() {
+    @DisplayName("구매자·판매자는 각자 참여자로 판정되고, 제3자는 아니다")
+    void participantChecks_distinguishBuyerSellerAndOutsider() {
         ChatRoom room = ChatRoom.open("01J3ARSNIPROOM0000000001", 10L, 20L, 30L);
 
-        room.rejoinAsBuyer();
-
-        assertThat(room.getBuyerHiddenAt()).isNull();
+        assertThat(room.isBuyer(20L)).isTrue();
+        assertThat(room.isSeller(20L)).isFalse();
+        assertThat(room.isSeller(30L)).isTrue();
+        assertThat(room.isBuyer(30L)).isFalse();
+        assertThat(room.isParticipant(20L)).isTrue();
+        assertThat(room.isParticipant(30L)).isTrue();
+        assertThat(room.isParticipant(999L)).isFalse();
     }
 }

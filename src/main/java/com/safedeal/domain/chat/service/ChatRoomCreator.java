@@ -13,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+
 /**
  * 채팅방 생성의 단일 시도(트랜잭션 경계). {@link ChatRoomCommandService}가 이 메서드를
  * 감싸 UNIQUE 충돌 시 재시도한다 — 재시도 catch가 이 트랜잭션 "밖"에 있어야 하므로 빈을
@@ -42,7 +44,11 @@ public class ChatRoomCreator {
                 .findByBuyerIdAndListingId(buyerId, listing.getId())
                 .orElse(null);
         if (existing != null) {
-            existing.rejoinAsBuyer();
+            if (existing.getBuyerHiddenAt() != null) {
+                // 조건부 UPDATE(더티체킹 아님 — 리포지토리 주석 참고). 이미 보이는 방이면 쿼리
+                // 자체를 생략해 재진입마다 쓰기가 나가지 않게 한다.
+                chatRoomRepository.rejoinAsBuyer(existing.getId(), Instant.now());
+            }
             return ChatRoomCreateResponse.of(existing, listing, false);
         }
 

@@ -20,10 +20,15 @@ import java.time.Instant;
  * 삭제·제재로 매물이 어떻게 되든 방 자체는 그대로 남고, "지금 새 방을 만들 수 있는지"는
  * 매물({@code Listing}) 쪽 상태로만 판정한다.
  *
- * <p><b>{@code MutableEntity}를 상속하는 이유:</b> 재진입 복구({@link #rejoinAsBuyer()})가
- * 실제 UPDATE를 일으킨다 — {@code CreatedEntity}의 판정 기준("실제 UPDATE의 존재 여부",
+ * <p><b>{@code MutableEntity}를 상속하는 이유:</b> 재진입 복구·읽음 커서 전진이 실제 UPDATE를
+ * 일으킨다 — {@code CreatedEntity}의 판정 기준("실제 UPDATE의 존재 여부",
  * {@code CreatedEntity} 클래스 주석)과 {@code MutableEntity} 클래스 주석이 채팅방의 커서
  * 갱신을 직접 예로 든 것 둘 다에 부합한다.
+ *
+ * <p><b>이 엔티티의 변경은 전부 {@code ChatRoomRepository}의 조건부 UPDATE로 한다</b>
+ * (재진입 복구·읽음 커서). 엔티티를 읽어 setter로 바꾸는 더티체킹은 쓰지 않는다 — 그 행의
+ * 컬럼 <i>전부</i>를 처음 읽은 값으로 다시 써서, 그 사이 다른 트랜잭션이 올린 커서를 옛
+ * 값으로 되돌린다(lost update). 그래서 이 엔티티에는 상태를 바꾸는 메서드가 없다.
  *
  * <p><b>{@code sellerId}를 비정규화해 중복 저장하는 이유:</b> 알림 도메인의 {@code targetId}
  * 처럼 다른 도메인을 join 없이 자기완결적으로 응답하려는 것이다. {@code Listing.sellerId}는
@@ -105,19 +110,6 @@ public class ChatRoom extends MutableEntity {
 
     public static ChatRoom open(String publicId, Long listingId, Long buyerId, Long sellerId) {
         return new ChatRoom(publicId, listingId, buyerId, sellerId);
-    }
-
-    /**
-     * 구매자 쪽 숨김을 되돌린다(API 명세서 CHT-1 "숨김 상태였다면 재진입 시 복구"). 이미
-     * 보이는 상태면 그대로 둔다 — 몇 번을 호출해도 결과가 같은 멱등 연산이다
-     * ({@code Notification.markAsRead}와 같은 형태).
-     *
-     * <p>판매자 쪽을 건드리지 않는 이유: 정책이 "메시지 수신 시 수신자 hidden_at=null"이라고
-     * 당사자별로 규정했고, 이 엔드포인트의 행위자는 언제나 구매자다(본인 매물은 애초에
-     * 막힌다).
-     */
-    public void rejoinAsBuyer() {
-        this.buyerHiddenAt = null;
     }
 
     /**
