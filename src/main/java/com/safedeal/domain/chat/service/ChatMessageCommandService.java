@@ -2,6 +2,7 @@ package com.safedeal.domain.chat.service;
 
 import com.safedeal.domain.chat.dto.ChatMessageAppendCommand;
 import com.safedeal.domain.chat.dto.ChatMessageAppendResult;
+import com.safedeal.domain.chat.entity.ChatMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,8 @@ import org.springframework.stereotype.Service;
  * 이전 시도이거나 상대의) 행을 찾아 같은 결과를 돌려준다.
  *
  * <p>재시도는 1회만 한다 — 두 번째도 실패하면 경쟁이 아니라 버그이므로 그대로 올린다.
+ * {@link ChatMessage#UK_ROOM_CLIENT_MSG} 위반일 때만 재시도한다({@link ChatRoomCommandService}와
+ * 같은 이유 — 원인을 모르는 무결성 위반을 다시 시도해 원래 오류를 가리지 않는다).
  */
 @Service
 @RequiredArgsConstructor
@@ -29,6 +32,9 @@ public class ChatMessageCommandService {
         try {
             return chatMessageAppender.append(senderId, command);
         } catch (DataIntegrityViolationException e) {
+            if (!UniqueViolations.causedBy(e, ChatMessage.UK_ROOM_CLIENT_MSG)) {
+                throw e;
+            }
             return chatMessageAppender.append(senderId, command);
         }
     }

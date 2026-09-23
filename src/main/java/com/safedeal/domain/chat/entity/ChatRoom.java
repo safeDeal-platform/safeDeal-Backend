@@ -35,15 +35,23 @@ import java.time.Instant;
 @Table(
         name = "chat_rooms",
         uniqueConstraints = {
-                @UniqueConstraint(name = "uk_chat_rooms_public_id", columnNames = "public_id"),
+                @UniqueConstraint(name = ChatRoom.UK_PUBLIC_ID, columnNames = "public_id"),
                 // 동시 클릭의 최종 방어(API 명세서 CHT-1). 선두를 buyer_id로 둔 이유는 다음
                 // 슬라이스의 "내 채팅방 목록(구매자)"이 이 인덱스를 그대로 타게 하기 위해서다
                 // — 제약의 의미 자체는 컬럼 순서와 무관하다.
-                @UniqueConstraint(name = "uk_chat_rooms_buyer_listing",
+                @UniqueConstraint(name = ChatRoom.UK_BUYER_LISTING,
                         columnNames = {"buyer_id", "listing_id"})
         }
 )
 public class ChatRoom extends MutableEntity {
+
+    /**
+     * 제약 이름을 상수로 둔다 — {@code ChatRoomCommandService}가 "이 제약 위반일 때만" 재시도
+     * 하는데, 애너테이션과 판정이 각자 문자열을 들고 있으면 한쪽만 바뀌는 순간 재시도가
+     * 조용히 멈춘다.
+     */
+    public static final String UK_PUBLIC_ID = "uk_chat_rooms_public_id";
+    public static final String UK_BUYER_LISTING = "uk_chat_rooms_buyer_listing";
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

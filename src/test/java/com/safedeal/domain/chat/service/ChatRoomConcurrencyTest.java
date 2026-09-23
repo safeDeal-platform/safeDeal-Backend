@@ -69,33 +69,37 @@ class ChatRoomConcurrencyTest extends IntegrationTestSupport {
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
+        List<ChatRoomCreateResponse> responses;
+        try {
+            List<Future<ChatRoomCreateResponse>> futures = List.of(
+                    executor.submit(() -> {
+                        ready.countDown();
+                        start.await();
+                        return chatRoomCommandService.open(20L, request);
+                    }),
+                    executor.submit(() -> {
+                        ready.countDown();
+                        start.await();
+                        return chatRoomCommandService.open(20L, request);
+                    })
+            );
 
-        List<Future<ChatRoomCreateResponse>> futures = List.of(
-                executor.submit(() -> {
-                    ready.countDown();
-                    start.await();
-                    return chatRoomCommandService.open(20L, request);
-                }),
-                executor.submit(() -> {
-                    ready.countDown();
-                    start.await();
-                    return chatRoomCommandService.open(20L, request);
-                })
-        );
+            ready.await();
+            start.countDown();
 
-        ready.await();
-        start.countDown();
-
-        List<ChatRoomCreateResponse> responses = futures.stream()
-                .map(f -> {
-                    try {
-                        return f.get(10, TimeUnit.SECONDS);
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .toList();
-        executor.shutdown();
+            responses = futures.stream()
+                    .map(f -> {
+                        try {
+                            return f.get(10, TimeUnit.SECONDS);
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
+                    .toList();
+        } finally {
+            // 결과 수집이 실패해도 비데몬 스레드가 남아 테스트 프로세스가 안 끝나는 일이 없도록.
+            executor.shutdownNow();
+        }
 
         assertThat(responses).extracting(ChatRoomCreateResponse::created)
                 .containsExactlyInAnyOrder(true, false);

@@ -62,33 +62,37 @@ class ChatMessageConcurrencyTest extends IntegrationTestSupport {
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
+        List<ChatMessageAppendResult> responses;
+        try {
+            List<Future<ChatMessageAppendResult>> futures = List.of(
+                    executor.submit(() -> {
+                        ready.countDown();
+                        start.await();
+                        return chatMessageCommandService.append(20L, command);
+                    }),
+                    executor.submit(() -> {
+                        ready.countDown();
+                        start.await();
+                        return chatMessageCommandService.append(20L, command);
+                    })
+            );
 
-        List<Future<ChatMessageAppendResult>> futures = List.of(
-                executor.submit(() -> {
-                    ready.countDown();
-                    start.await();
-                    return chatMessageCommandService.append(20L, command);
-                }),
-                executor.submit(() -> {
-                    ready.countDown();
-                    start.await();
-                    return chatMessageCommandService.append(20L, command);
-                })
-        );
+            ready.await();
+            start.countDown();
 
-        ready.await();
-        start.countDown();
-
-        List<ChatMessageAppendResult> responses = futures.stream()
-                .map(f -> {
-                    try {
-                        return f.get(10, TimeUnit.SECONDS);
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    }
-                })
-                .toList();
-        executor.shutdown();
+            responses = futures.stream()
+                    .map(f -> {
+                        try {
+                            return f.get(10, TimeUnit.SECONDS);
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
+                    .toList();
+        } finally {
+            // 결과 수집이 실패해도 비데몬 스레드가 남아 테스트 프로세스가 안 끝나는 일이 없도록.
+            executor.shutdownNow();
+        }
 
         assertThat(responses.get(0).messageId()).isEqualTo(responses.get(1).messageId());
         assertThat(chatMessageRepository.findByRoomIdAndClientMessageId(room.getId(), "c-uuid-concurrent"))

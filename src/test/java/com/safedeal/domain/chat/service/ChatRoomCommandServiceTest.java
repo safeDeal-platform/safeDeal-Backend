@@ -2,6 +2,7 @@ package com.safedeal.domain.chat.service;
 
 import com.safedeal.domain.chat.dto.ChatRoomCreateRequest;
 import com.safedeal.domain.chat.dto.ChatRoomCreateResponse;
+import com.safedeal.domain.chat.entity.ChatRoom;
 import com.safedeal.domain.listing.entity.ListingStatus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ class ChatRoomCommandServiceTest {
     void open_retriesOnceAfterUniqueViolation() {
         ChatRoomCreateResponse existingRoom = new ChatRoomCreateResponse("01J3ARSNIPROOM0000000001", false, ListingStatus.ACTIVE);
         when(chatRoomCreator.open(BUYER_ID, REQUEST))
-                .thenThrow(new DataIntegrityViolationException("uk_chat_rooms_buyer_listing"))
+                .thenThrow(UniqueViolationFixtures.violationOf("chat_rooms", ChatRoom.UK_BUYER_LISTING))
                 .thenReturn(existingRoom);
 
         ChatRoomCreateResponse response = chatRoomCommandService.open(BUYER_ID, REQUEST);
@@ -63,13 +64,37 @@ class ChatRoomCommandServiceTest {
     @Test
     @DisplayName("재시도도 실패하면 조용히 삼키지 않고 그대로 올린다 (루프를 돌리지 않는다)")
     void open_secondFailureIsNotSwallowed() {
+        DataIntegrityViolationException second =
+                UniqueViolationFixtures.violationOf("chat_rooms", ChatRoom.UK_BUYER_LISTING);
         when(chatRoomCreator.open(BUYER_ID, REQUEST))
-                .thenThrow(new DataIntegrityViolationException("first"))
-                .thenThrow(new DataIntegrityViolationException("second"));
+                .thenThrow(UniqueViolationFixtures.violationOf("chat_rooms", ChatRoom.UK_BUYER_LISTING))
+                .thenThrow(second);
 
         assertThatThrownBy(() -> chatRoomCommandService.open(BUYER_ID, REQUEST))
-                .isInstanceOf(DataIntegrityViolationException.class)
-                .hasMessage("second");
+                .isSameAs(second);
         verify(chatRoomCreator, times(2)).open(BUYER_ID, REQUEST);
+    }
+
+    @Test
+    @DisplayName("다른 제약(public_id) 위반은 재시도하지 않고 즉시 올린다 — 새 ULID로 우연히 성공해 원인이 가려지는 것을 막는다")
+    void open_otherConstraintViolation_isNotRetried() {
+        DataIntegrityViolationException publicIdViolation =
+                UniqueViolationFixtures.violationOf("chat_rooms", ChatRoom.UK_PUBLIC_ID);
+        when(chatRoomCreator.open(BUYER_ID, REQUEST)).thenThrow(publicIdViolation);
+
+        assertThatThrownBy(() -> chatRoomCommandService.open(BUYER_ID, REQUEST))
+                .isSameAs(publicIdViolation);
+        verify(chatRoomCreator, times(1)).open(BUYER_ID, REQUEST);
+    }
+
+    @Test
+    @DisplayName("제약 이름을 알 수 없는 무결성 위반도 재시도하지 않는다")
+    void open_unknownIntegrityViolation_isNotRetried() {
+        DataIntegrityViolationException unknown = new DataIntegrityViolationException("원인 불명");
+        when(chatRoomCreator.open(BUYER_ID, REQUEST)).thenThrow(unknown);
+
+        assertThatThrownBy(() -> chatRoomCommandService.open(BUYER_ID, REQUEST))
+                .isSameAs(unknown);
+        verify(chatRoomCreator, times(1)).open(BUYER_ID, REQUEST);
     }
 }

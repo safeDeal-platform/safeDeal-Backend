@@ -41,7 +41,7 @@ import lombok.NoArgsConstructor;
         name = "chat_messages",
         uniqueConstraints = {
                 // 재전송 중복 저장 방지(API 명세서 CHT-2 "멱등: clientMessageId + UNIQUE").
-                @UniqueConstraint(name = "uk_chat_messages_room_client_msg",
+                @UniqueConstraint(name = ChatMessage.UK_ROOM_CLIENT_MSG,
                         columnNames = {"room_id", "client_message_id"})
         },
         indexes = {
@@ -52,6 +52,9 @@ import lombok.NoArgsConstructor;
         }
 )
 public class ChatMessage extends CreatedEntity {
+
+    /** 재시도 판정({@code ChatMessageCommandService})과 애너테이션이 같은 이름을 쓰게 하는 상수. */
+    public static final String UK_ROOM_CLIENT_MSG = "uk_chat_messages_room_client_msg";
 
     /** 정책 상한(trim 후 1~1,000자). */
     public static final int MAX_CONTENT_LENGTH = 1_000;
