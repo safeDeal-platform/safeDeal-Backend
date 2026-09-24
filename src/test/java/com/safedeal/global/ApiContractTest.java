@@ -78,6 +78,14 @@ class ApiContractTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("채팅방 생성은 화이트리스트가 아니다 — 인증 없이 401")
+    void chatRoomCreate_requiresAuth() throws Exception {
+        mockMvc.perform(post("/api/chat/rooms").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("C005"));
+    }
+
+    @Test
     @DisplayName("카테고리 목록은 화이트리스트 — 인증 없이 조회된다")
     void categories_isWhitelisted() throws Exception {
         mockMvc.perform(get("/api/categories"))
