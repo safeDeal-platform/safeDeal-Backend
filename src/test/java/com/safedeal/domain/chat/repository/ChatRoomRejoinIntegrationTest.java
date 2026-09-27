@@ -103,17 +103,23 @@ class ChatRoomRejoinIntegrationTest extends IntegrationTestSupport {
     @Test
     @DisplayName("복구는 구매자 숨김만 건드리고 판매자 숨김은 그대로 둔다")
     void rejoin_leavesSellerHiddenUntouched() {
+        // 판매자 숨김 시각은 "지금"이 아닌 과거의 고정값으로 심는다 — 복구가 이 값을 지금 시각으로
+        // 덮어쓰면 아래 값 비교에서 반드시 달라진다(null 여부만 보면 덮어써도 통과한다).
         outer.executeWithoutResult(status -> entityManager
                 .createNativeQuery("UPDATE chat_rooms SET buyer_hidden_at = NOW(6), "
-                        + "seller_hidden_at = NOW(6) WHERE id = :id")
+                        + "seller_hidden_at = '2026-09-01 00:00:00.000000' WHERE id = :id")
                 .setParameter("id", roomId)
                 .executeUpdate());
+        Instant sellerHiddenBefore = chatRoomRepository.findById(roomId).orElseThrow().getSellerHiddenAt();
+        assertThat(sellerHiddenBefore).isNotNull();
 
         outer.executeWithoutResult(status ->
                 chatRoomRepository.rejoinAsBuyer(roomId, Instant.now()));
 
         ChatRoom after = chatRoomRepository.findById(roomId).orElseThrow();
         assertThat(after.getBuyerHiddenAt()).isNull();
-        assertThat(after.getSellerHiddenAt()).isNotNull();
+        assertThat(after.getSellerHiddenAt())
+                .as("복구가 판매자 숨김 시각을 바꾸면 안 된다")
+                .isEqualTo(sellerHiddenBefore);
     }
 }
