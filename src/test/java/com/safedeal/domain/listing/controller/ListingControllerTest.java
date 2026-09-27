@@ -16,6 +16,8 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -71,7 +73,7 @@ class ListingControllerTest {
                 new ListingDetailResponse.CategoryRef("DIGITAL_PHONE", "스마트폰", "디지털기기"),
                 ItemCondition.LIKE_NEW,
                 new ListingDetailResponse.RegionRef("서울특별시", "강남구"),
-                ListingStatus.ACTIVE, 0, Instant.parse("2026-08-30T00:00:00Z")));
+                ListingStatus.ACTIVE, 0, Instant.parse("2026-08-30T00:00:00Z"), 3L));
 
         mockMvc.perform(get("/api/listings/01J3A"))
                 .andExpect(status().isOk())
@@ -79,7 +81,27 @@ class ListingControllerTest {
                 .andExpect(jsonPath("$.data.category.code").value("DIGITAL_PHONE"))
                 .andExpect(jsonPath("$.data.category.parentName").value("디지털기기"))
                 .andExpect(jsonPath("$.data.region.sigungu").value("강남구"))
+                // 수정 요청이 version을 필수로 받는데 상세가 안 내려주면 첫 수정을 할 수 없다.
+                .andExpect(jsonPath("$.data.version").value(3))
                 .andExpect(jsonPath("$.data.id").doesNotExist())
                 .andExpect(jsonPath("$.data.sellerId").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("조회수 증가가 실패해도 상세 조회는 200으로 나간다")
+    void detailSurvivesViewCountFailure() throws Exception {
+        when(queryService.getListing("01J3A")).thenReturn(new ListingDetailResponse(
+                "01J3A", "아이폰", "설명", 950_000,
+                new ListingDetailResponse.CategoryRef("DIGITAL_PHONE", "스마트폰", "디지털기기"),
+                ItemCondition.LIKE_NEW,
+                new ListingDetailResponse.RegionRef("서울특별시", "강남구"),
+                ListingStatus.ACTIVE, 0, Instant.parse("2026-08-30T00:00:00Z"), 3L));
+        // 락 대기 타임아웃·DB 순단을 흉내 낸다. 읽기는 이미 성공한 뒤다.
+        doThrow(new RuntimeException("lock wait timeout"))
+                .when(commandService).increaseViewCount(any(), any(), anyBoolean());
+
+        mockMvc.perform(get("/api/listings/01J3A"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.publicId").value("01J3A"));
     }
 }

@@ -24,7 +24,13 @@ public record ListingDetailResponse(
         RegionRef region,
         ListingStatus status,
         int viewCount,
-        Instant createdAt
+        Instant createdAt,
+        /**
+         * 수정 요청이 실어 보내야 하는 낙관적 락 버전. 여기서 내려주지 않으면 클라이언트가
+         * 첫 수정에 쓸 값을 얻을 곳이 없다 — 수정 응답에만 실으면 "수정에 성공해야 수정할
+         * 수 있는" 상태가 된다.
+         */
+        Long version
 ) {
     /** 카테고리는 숫자 id가 아니라 code로 노출한다. 표시명은 화면이 다시 조회하지 않도록 함께 준다. */
     public record CategoryRef(String code, String name, String parentName) {
@@ -49,6 +55,7 @@ public record ListingDetailResponse(
                 new RegionRef(listing.getRegionSido(), listing.getRegionSigungu()),
                 listing.getStatus(),
                 listing.getViewCount(),
-                listing.getCreatedAt());
+                listing.getCreatedAt(),
+                listing.getVersion());
     }
 }

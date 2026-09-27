@@ -19,6 +19,7 @@ import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -36,6 +37,7 @@ import java.time.LocalDate;
  * "조회만 했는데 판매자의 수정이 실패하는" 버그가 난다. 별도 벌크 UPDATE로 처리한다.
  */
 @Entity
+@DynamicUpdate
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Table(
@@ -134,7 +136,14 @@ public class Listing extends MutableEntity {
     @Column(name = "image_version", nullable = false)
     private long imageVersion;
 
-    /** 내용 수정 충돌용. 상태 전이는 이것이 아니라 조건부 UPDATE로 막는다 — 서로 다른 문제다. */
+    /**
+     * 내용 수정 충돌용. 상태 전이는 이것이 아니라 조건부 UPDATE로 막는다 — 서로 다른 문제다.
+     *
+     * <p>다만 상태 전이 벌크 UPDATE도 이 값을 함께 올린다. 안 올리면 수정 요청이 읽어 둔 뒤
+     * 판매완료가 커밋돼도 버전 검사를 통과해, 수정이 판매완료를 되돌린다. 조회수 증가만
+     * 예외다(올리면 남이 열어본 것만으로 판매자의 수정이 실패한다) — 그래서 이 엔티티는
+     * {@code @DynamicUpdate}로 바뀐 컬럼만 쓴다. 안 그러면 수정이 옛 조회수를 덮어쓴다.
+     */
     @Version
     private Long version;
 
@@ -208,6 +217,78 @@ public class Listing extends MutableEntity {
     /** 상세로 열어줘도 되는지. 목록과 기준이 다르다 — 팔린 매물의 상세는 열려 있어야 한다. */
     public boolean isViewable() {
         return !isDeleted() && status.isViewable();
+    }
+
+    /**
+     * 내용을 수정한다. 상태·권한 확인은 서비스가 먼저 하고, 여기서는 값 불변식만 지킨다.
+     *
+     * <p>가격을 내리는 경우에만 하루 한도를 센다. 올리거나 그대로 두는 건 세지 않는다 —
+     * 막으려는 것이 "내렸다 올렸다를 반복해 목록 상단에 계속 뜨는 행위"이기 때문이다.
+     *
+     * <p>지역도 수정 대상이다. 등록에서만 받고 여기서 빼면, 시/도·시/군/구를 잘못 넣은
+     * 판매자가 삭제 후 재등록 외에는 고칠 방법이 없다 — 그러면 public_id·조회수·찜이 함께
+     * 사라진다. 지역은 목록 필터의 주요 축이라 오타 하나로 검색에서 통째로 빠진다.
+     *
+     * @param today 오늘 날짜. 서버 시계를 직접 읽지 않고 받는다 — 그래야 날짜 경계 동작을
+     *              테스트로 고정할 수 있다.
+     * @throws PriceDropLimitExceededException 하루 인하 한도를 넘긴 경우
+     */
+    public void update(String title, String description, int price, Category category,
+                       ItemCondition itemCondition, String regionSido, String regionSigungu,
+                       LocalDate today) {
+        requireText(title, "title");
+        requireText(description, "description");
+        validatePrice(price);
+        requireLeafCategory(category);
+        if (itemCondition == null) {
+            throw new IllegalArgumentException("물품 상태는 필수입니다");
+        }
+        requireText(regionSido, "regionSido");
+        requireText(regionSigungu, "regionSigungu");
+
+        if (price < this.price) {
+            countPriceDrop(today);
+        }
+        this.title = title.strip();
+        this.description = description;
+        this.price = price;
+        this.category = category;
+        this.itemCondition = itemCondition;
+        this.regionSido = regionSido.strip();
+        this.regionSigungu = regionSigungu.strip();
+    }
+
+    private void countPriceDrop(LocalDate today) {
+        if (!today.equals(priceDropDate)) {
+            priceDropDate = today;
+            priceDropCount = 0;
+        }
+        if (priceDropCount >= MAX_PRICE_DROPS_PER_DAY) {
+            throw new PriceDropLimitExceededException();
+        }
+        priceDropCount++;
+    }
+
+    /** 하루 인하 한도를 넘겼을 때. 서비스가 도메인 에러 코드로 옮긴다. */
+    public static class PriceDropLimitExceededException extends RuntimeException {
+    }
+
+    /**
+     * 소프트 삭제. 물리 삭제하지 않는 이유는 거래 기록이 고아가 되고 사기 후 증거 인멸이
+     * 가능해지기 때문이다.
+     *
+     * <p>차단된 매물은 지울 수 없다 — 제재 근거가 사라진다.
+     */
+    public void softDelete(Instant now) {
+        if (isDeleted()) {
+            return;
+        }
+        // 삭제도 상태 전이다. 전이표를 우회하면 규칙을 한 곳에 모아둔 의미가 없어진다.
+        if (!status.canTransitionTo(ListingStatus.DELETED)) {
+            throw new IllegalStateException("지금 상태에서는 삭제할 수 없습니다: " + status);
+        }
+        this.deletedAt = now;
+        this.status = ListingStatus.DELETED;
     }
 
     private static void validatePrice(int price) {
