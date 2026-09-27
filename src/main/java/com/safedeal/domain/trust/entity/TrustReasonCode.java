@@ -10,8 +10,8 @@ package com.safedeal.domain.trust.entity;
  *
  * 값은 내부 1000 척도다({@link com.safedeal.domain.trust.TrustScore}). 표시값은 ÷10이다.
  *
- * <b>전부 잠정이다</b> — 정책이 "모든 delta는 MVP 이후 운영 데이터로 재조정"이라고 명시했다.
- * 거래완료 +1.0만 확정이고 나머지는 값이 바뀔 수 있다.
+ * <b>모든 delta는 MVP 이후 운영 데이터로 재조정한다</b>(정책 명시). 그때까지 쓰는 값 중
+ * 거래완료 +1.0과 후기 +0.3/−0.5(2026-09-20)는 확정이고, 제재 −30.0만 잠정이다.
  */
 public enum TrustReasonCode {
 
@@ -26,11 +26,11 @@ public enum TrustReasonCode {
      */
     REPORT_CONFIRMED(-300),
 
-    /** 후기 좋아요 (REV-2). 표시 +1.0 — 잠정값. */
-    REVIEW_LIKE(+10),
+    /** 후기 좋아요 (REV-2). 표시 +0.3 — 정책 확정값(2026-09-20). */
+    REVIEW_LIKE(+3),
 
-    /** 후기 싫어요 (REV-2). 표시 −5.0 — 잠정값. */
-    REVIEW_DISLIKE(-50);
+    /** 후기 싫어요 (REV-2). 표시 −0.5 — 정책 확정값(2026-09-20). */
+    REVIEW_DISLIKE(-5);
 
     private final int delta;
 
@@ -46,9 +46,12 @@ public enum TrustReasonCode {
     /**
      * 어뷰징 한도(동일 상대 월 3회)를 적용받는 사유인지 (정책 TRS-5).
      *
-     * 거래완료만 대상이다. 셀프 거래·작업장 계정이 같은 상대와 반복 거래로 점수를 뻥튀기하는
-     * 것을 막는 규칙이라, 감점(제재)이나 후기에는 적용할 이유가 없다 — 감점에 한도를 두면
-     * 오히려 반복 가해자가 보호받는다.
+     * <b>지금은 거래완료만 대상이다.</b> 셀프 거래·작업장 계정이 같은 상대와 반복 거래로 점수를
+     * 뻥튀기하는 것을 막는 규칙이고, 감점(제재)에 한도를 두면 오히려 반복 가해자가 보호받는다.
+     *
+     * <p>다만 정책(후기 delta 확정, 2026-09-20)은 이 상한이 <b>후기 가산에도 동일하게 적용</b>된다고
+     * 정했다. 아직 코드에 반영되지 않았다 — 후기 가산의 상대 판정 기준과 카운터 공유 여부를
+     * 정한 뒤 여기와 {@code TrustScoreService}에 반영하는 후속 작업이다.
      */
     public boolean isAbuseCapped() {
         return this == TRADE_COMPLETED;
