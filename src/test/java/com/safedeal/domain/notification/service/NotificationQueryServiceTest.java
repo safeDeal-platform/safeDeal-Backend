@@ -2,6 +2,7 @@ package com.safedeal.domain.notification.service;
 
 import com.safedeal.domain.notification.dto.NotificationItemResponse;
 import com.safedeal.domain.notification.dto.NotificationListResponse;
+import com.safedeal.domain.notification.dto.UnreadCountResponse;
 import com.safedeal.domain.notification.entity.Notification;
 import com.safedeal.domain.notification.entity.NotificationChannel;
 import com.safedeal.domain.notification.entity.NotificationTargetType;
@@ -129,5 +130,30 @@ class NotificationQueryServiceTest {
 
         assertThat(response.items()).extracting(NotificationItemResponse::isRead)
                 .containsExactly(false, true);
+    }
+
+    @Test
+    @DisplayName("안읽음 개수는 IN_APP 채널로 고정해 리포지토리를 호출한다")
+    void getUnreadCount_queriesInAppChannel() {
+        when(notificationRepository.countByUserIdAndChannelAndReadAtIsNull(USER_ID, NotificationChannel.IN_APP))
+                .thenReturn(3L);
+
+        UnreadCountResponse response = notificationQueryService.getUnreadCount(USER_ID);
+
+        assertThat(response.unreadCount()).isEqualTo(3L);
+        verify(notificationRepository)
+                .countByUserIdAndChannelAndReadAtIsNull(USER_ID, NotificationChannel.IN_APP);
+        verifyNoMoreInteractions(notificationRepository);
+    }
+
+    @Test
+    @DisplayName("안읽음이 없으면 0을 그대로 응답에 싣는다")
+    void getUnreadCount_zeroWhenNoneUnread() {
+        when(notificationRepository.countByUserIdAndChannelAndReadAtIsNull(USER_ID, NotificationChannel.IN_APP))
+                .thenReturn(0L);
+
+        UnreadCountResponse response = notificationQueryService.getUnreadCount(USER_ID);
+
+        assertThat(response.unreadCount()).isZero();
     }
 }
