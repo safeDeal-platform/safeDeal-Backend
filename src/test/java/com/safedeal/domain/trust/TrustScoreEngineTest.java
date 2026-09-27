@@ -126,11 +126,29 @@ class TrustScoreEngineTest {
     }
 
     @Test
+    @DisplayName("후기 좋아요는 +3(표시 +0.3), 싫어요는 -5(표시 -0.5)를 반영한다 (2026-09-20 확정)")
+    void reviewDeltasFollowPolicy() {
+        User user = newUser();
+
+        trustScoreService.apply(new TrustScoreChange(user.getId(), TrustReasonCode.REVIEW_LIKE,
+                TrustRefType.ORDER_ITEM, 31L, null, "evt-rl-" + user.getId()));
+        assertThat(reload(user).getTrustScore()).isEqualTo(TrustScore.INITIAL + 3);
+
+        trustScoreService.apply(new TrustScoreChange(user.getId(), TrustReasonCode.REVIEW_DISLIKE,
+                TrustRefType.ORDER_ITEM, 32L, null, "evt-rd-" + user.getId()));
+        assertThat(reload(user).getTrustScore()).isEqualTo(TrustScore.INITIAL + 3 - 5);
+
+        assertThat(logsOf(user)).extracting(TrustScoreLog::getDelta).containsExactlyInAnyOrder(3, -5);
+    }
+
+    @Test
     @DisplayName("제재 이력이 없으면 점수가 300 밑으로 내려가지 않는다")
     void protectedUserStopsAtFloor() {
         User user = newUser();
-        // 싫어요(-50) 5번이면 산술적으로 250이지만 하한 300에서 멈춰야 한다.
-        for (int i = 1; i <= 5; i++) {
+        // 싫어요(-5)로 하한(300)까지 내려가는 데 40번(-200)이 든다. 5번을 더 받아도
+        // 산술적으로는 275지만 하한 300에서 멈춰야 한다.
+        int toFloor = (TrustScore.INITIAL - TrustScore.PROTECTED_FLOOR) / -TrustReasonCode.REVIEW_DISLIKE.delta();
+        for (int i = 1; i <= toFloor + 5; i++) {
             trustScoreService.apply(new TrustScoreChange(user.getId(), TrustReasonCode.REVIEW_DISLIKE,
                     TrustRefType.ORDER_ITEM, (long) i, null, "evt-d-" + user.getId() + "-" + i));
         }
