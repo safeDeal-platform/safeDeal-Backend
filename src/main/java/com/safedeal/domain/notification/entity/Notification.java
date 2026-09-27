@@ -42,7 +42,10 @@ import java.time.Instant;
         indexes = {
                 // 사용자별 최신순 조회(목록/폴링)의 주 인덱스. id DESC로 커서(sinceId) 증분에도 쓰인다.
                 @Index(name = "idx_notifications_user_id", columnList = "user_id, id"),
-                @Index(name = "idx_notifications_target", columnList = "target_type, target_id")
+                @Index(name = "idx_notifications_target", columnList = "target_type, target_id"),
+                // 안읽음 개수 배지 전용. 활성 사용자 전원이 폴링마다 때리는 COUNT라
+                // TrustScoreLog의 "핫한 COUNT엔 전용 인덱스" 관행을 따른다.
+                @Index(name = "idx_notifications_unread", columnList = "user_id, channel, read_at")
         }
 )
 public class Notification extends MutableEntity {

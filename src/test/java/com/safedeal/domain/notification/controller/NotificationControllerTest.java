@@ -2,6 +2,7 @@ package com.safedeal.domain.notification.controller;
 
 import com.safedeal.domain.notification.dto.NotificationItemResponse;
 import com.safedeal.domain.notification.dto.NotificationListResponse;
+import com.safedeal.domain.notification.dto.UnreadCountResponse;
 import com.safedeal.domain.notification.entity.NotificationTargetType;
 import com.safedeal.domain.notification.entity.NotificationType;
 import com.safedeal.domain.notification.service.NotificationCommandService;
@@ -113,6 +114,29 @@ class NotificationControllerTest {
                 .andExpect(status().isOk());
 
         verify(notificationQueryService).getNotifications(42L, 88L);
+    }
+
+    @Test
+    @DisplayName("안읽음 개수는 principal의 userId로 조회되고 success/data 형식으로 내려온다")
+    void getUnreadCount_delegatesWithPrincipalUserId() throws Exception {
+        when(notificationQueryService.getUnreadCount(42L)).thenReturn(new UnreadCountResponse(3L));
+
+        mockMvc.perform(get("/api/notifications/unread-count"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.unreadCount").value(3));
+
+        verify(notificationQueryService).getUnreadCount(42L);
+    }
+
+    @Test
+    @DisplayName("안읽음이 없어도 unreadCount 필드는 0으로 남아있다 — 필드가 생략되면 안 된다")
+    void getUnreadCount_zeroFieldNotOmitted() throws Exception {
+        when(notificationQueryService.getUnreadCount(42L)).thenReturn(new UnreadCountResponse(0L));
+
+        mockMvc.perform(get("/api/notifications/unread-count"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.unreadCount").value(0));
     }
 
     @Test
