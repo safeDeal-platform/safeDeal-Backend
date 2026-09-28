@@ -23,11 +23,10 @@ public interface ListingRepository extends JpaRepository<Listing, Long>, Listing
     Optional<Listing> findByPublicId(String publicId);
 
     /**
-     * 채팅방 재진입용 — 삭제된 매물도 꺼낸다. API 명세서 CHT-1이 "SOLD·삭제 매물은 기존
-     * 방만 반환"을 요구하는데, 삭제된 매물의 기존 방을 찾으려면 삭제 여부와 무관하게
-     * 매물을 조회할 수 있어야 한다. 이름에 {@code IncludingDeleted}를 박아, 소프트삭제
-     * 조건이 빠진 것이 실수가 아니라 의도임을 드러낸다. 호출자는 채팅 재진입 경로 하나로
-     * 한정한다 — 다른 곳에서 이 메서드를 쓰면 삭제된 매물이 노출될 수 있다.
+     * 채팅방 재진입용 — 삭제된 매물도 꺼낸다. API 명세서 CHT-1이 "SOLD·삭제 매물은 기존 방만
+     * 반환"을 요구해, 삭제 여부와 무관하게 조회할 수 있어야 한다. 이름의 {@code IncludingDeleted}는
+     * 소프트삭제 조건 누락이 의도임을 드러낸다 — 채팅 재진입 경로 밖에서 쓰면 삭제된 매물이
+     * 노출된다.
      */
     @Query("select l from Listing l where l.publicId = :publicId")
     Optional<Listing> findByPublicIdIncludingDeleted(@Param("publicId") String publicId);
@@ -37,12 +36,11 @@ public interface ListingRepository extends JpaRepository<Listing, Long>, Listing
      *
      * <p>전이표 검증만으로는 부족해 조건부 UPDATE로 마무리한다 — 서버 두 대가 동시에 다른
      * 전이를 시도하면 각자 자기 메모리에서 검증해 둘 다 통과하고, 마지막에 쓴 쪽이 이겨
-     * 데이터가 오염된다. WHERE에 기대 상태를 걸면 DB가 한 쪽만 성공시킨다.
+     * 데이터가 오염된다. WHERE에 기대 상태를 걸면 DB가 한 쪽만 성공시킨다. 영향 행이 0이면
+     * 이미 팔렸거나, 남의 매물이거나, 공개 상태가 아니라는 뜻이다.
      *
-     * <p>영향 행이 0이면 이미 팔렸거나, 남의 매물이거나, 공개 상태가 아니라는 뜻이다.
-     *
-     * <p>MANUAL로 남기는 이유: 결제로 팔린 건과 되돌리기 규칙이 다르고, 가격 통계는 결제
-     * 건만 원료로 써야 가짜 거래로 시세를 조작할 수 없다.
+     * <p>MANUAL로 남기는 이유: 결제 건과 되돌리기 규칙이 다르고, 가격 통계는 결제 건만
+     * 원료로 써야 가짜 거래로 시세를 조작할 수 없다.
      */
     @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)

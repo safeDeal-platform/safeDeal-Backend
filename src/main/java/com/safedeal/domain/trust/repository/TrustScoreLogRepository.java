@@ -18,20 +18,16 @@ public interface TrustScoreLogRepository extends JpaRepository<TrustScoreLog, Lo
     boolean existsByEventId(String eventId);
 
     /**
-     * 같은 <b>사실</b>이 이미 반영됐는지.
-     *
-     * 발행 측이 재시도하며 eventId를 새로 만들어 보내는 경우를 잡는다 — eventId만 보면
-     * 그때 중복 반영된다.
+     * 같은 <b>사실</b>이 이미 반영됐는지. 발행 측이 eventId를 새로 만들어 재시도하는 경우를
+     * 잡는다 — eventId만 보면 그때 중복 반영된다.
      */
     boolean existsByUserIdAndReasonCodeAndRefTypeAndRefId(
             Long userId, TrustReasonCode reasonCode, TrustRefType refType, Long refId);
 
     /**
      * 이번 달에 같은 상대로부터 실제로 <b>가산된</b> 횟수 (정책 TRS-5, 동일 상대 월 3회).
-     *
-     * {@code delta <> 0}으로 거르는 이유: 한도를 넘겨 0점으로 기록된 행까지 세면 "가산 횟수"가
-     * 아니라 "이벤트 수"가 된다. 판정 결과는 어차피 같지만(이미 3을 넘긴 뒤이므로) 세는 대상이
-     * 규칙의 문장과 어긋나면 나중에 한도를 조정할 때 잘못 읽힌다.
+     * {@code delta <> 0}으로 거르는 이유: 한도 초과로 0점 기록된 행까지 세면 "가산 횟수"가
+     * 아니라 "이벤트 수"가 되어 나중에 한도를 조정할 때 잘못 읽힌다.
      */
     @Query("""
             select count(l) from TrustScoreLog l

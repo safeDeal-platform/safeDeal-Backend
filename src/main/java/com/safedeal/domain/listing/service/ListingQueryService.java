@@ -65,9 +65,8 @@ public class ListingQueryService {
             if (!SORT_KEY.equals(payload.sort())) {
                 throw new BusinessException(CommonErrorCode.INVALID_INPUT, "잘못된 커서입니다.");
             }
-            // 커서의 경계(createdAt, id)는 그 커서를 발급한 검색 조건 안에서만 의미가 있다. 조건을 바꾼 채
-            // 옛 커서를 쓰면 새 조건과 옛 경계가 따로 걸려, 경계보다 최신인 새 조건의 매물이 에러 없이
-            // 통째로 빠진다. 조용히 빠지는 것보다 거부해서 클라이언트가 첫 페이지부터 다시 부르게 한다.
+            // 커서 경계는 발급 당시 검색 조건 안에서만 의미가 있다. 조건이 바뀐 채 재사용하면 새
+            // 조건의 최신 매물이 에러 없이 통째로 빠지므로, 조용히 빠뜨리는 대신 거부한다.
             if (!fingerprint.equals(payload.filterFingerprint())) {
                 throw new BusinessException(CommonErrorCode.INVALID_INPUT,
                         "검색 조건이 바뀌어 이 커서를 사용할 수 없습니다. 첫 페이지부터 다시 조회하세요.");
@@ -102,23 +101,18 @@ public class ListingQueryService {
     /**
      * 목록 필터의 지문. 커서에 실어, 다음 요청의 필터가 발급 때와 같은지 비교한다.
      *
-     * <p><b>조회 결과를 가르는 입력만</b> 넣는다. size는 빠진다 — 한 페이지 개수만 바뀌어도 경계는
-     * 어긋나지 않는다. 빈 문자열은 null과 같게 취급한다 — 리포지토리가 둘을 똑같이 "필터 없음"으로
-     * 처리하므로({@code ListingQueryRepositoryImpl}의 isBlank 검사), 지문이 둘을 가르면 결과가 같은
-     * 요청을 거부하게 된다. 값의 앞뒤 공백은 자르지 않는다 — 리포지토리가 그대로 비교해 결과가 달라진다.
+     * <p>조회 결과를 가르는 입력만 넣는다(size는 제외). 빈 문자열은 null과 같게 취급하고
+     * 대문자로 통일해서 넣는다 — 리포지토리가 둘 다 "필터 없음"으로 보거나
+     * ({@code ListingQueryRepositoryImpl}) DB collation({@code utf8mb4_0900_ai_ci})이 대소문자를
+     * 구분하지 않는데 지문만 구분하면, 결과가 같은 요청을 다른 필터로 오판해 거부하게 된다.
      *
-     * <p>문자열 필터는 대문자로 통일한 뒤 넣는다. DB collation이 {@code utf8mb4_0900_ai_ci}(대소문자 무시,
-     * docker-compose와 정책 동일)라 {@code DIGITAL_PHONE}과 {@code digital_phone}은 같은 행으로 풀려
-     * 결과가 같다. 지문만 둘을 가르면 결과가 같은 다음 페이지 요청을 거부하게 된다.
-     *
-     * <p>커서는 비밀이 아니고 클라이언트가 지문을 고쳐 보낼 수도 있다. 이것은 공격 방어가 아니라
-     * "필터를 바꾸면서 커서를 초기화하지 않은" 실수를 드러내는 장치다 — 고쳐 보내봐야 얻는 것은
-     * 이미 공개된 매물 목록뿐이다.
+     * <p>커서는 비밀이 아니다 — 이 지문은 공격 방어가 아니라 "필터를 바꾸며 커서를 초기화하지
+     * 않은" 실수를 드러내는 장치일 뿐이다.
      */
     static String filterFingerprint(String categoryCode, String regionSido, String regionSigungu,
                                     Integer minPrice, Integer maxPrice) {
-        // 값마다 길이를 앞에 붙여 이어 붙인다. 구분자만 쓰면 값 안에 구분자가 들어왔을 때
-        // ("a|b","c")와 ("a","b|c")처럼 서로 다른 조건이 같은 문자열이 된다.
+        // 값마다 길이를 앞에 붙인다 — 구분자만 쓰면 값 안에 구분자가 있을 때 ("a|b","c")와
+        // ("a","b|c")가 같은 문자열이 된다.
         StringBuilder canonical = new StringBuilder();
         for (String value : new String[]{
                 categoryCode, regionSido, regionSigungu,
@@ -141,14 +135,12 @@ public class ListingQueryService {
     /**
      * 공개 상세.
      *
-     * <p>차단·삭제된 매물은 존재 자체를 알리지 않으려 404로 돌려준다(명세). 반면 <b>팔린 매물은
-     * 열어준다</b> — 거래 당사자가 나중에 확인하고, 채팅·신고에서 넘어온 링크가 죽지 않아야 한다.
+     * <p>차단·삭제된 매물은 존재 자체를 숨기려 404를 준다(명세). 팔린 매물은 열어준다 — 거래
+     * 당사자 확인, 채팅·신고 링크가 죽지 않아야 하기 때문이다.
      *
-     * <p><b>카테고리가 비활성으로 내려간 매물도 같은 이유로 열어준다.</b> 목록 조회
-     * ({@link #resolveCategoryIds})는 비활성 분류를 걸러 검색 결과에서 빼지만, 상세는 막지 않는다 —
-     * 내려간 것은 분류일 뿐 매물은 여전히 판매중이고, 여기서 404를 주면 채팅으로 흥정하던 구매자와
-     * 판매자 본인이 자기 매물을 못 보게 된다. "검색에는 안 뜨지만 링크가 있으면 보인다"가 의도다.
-     * 목록과 상세의 이 판단 차이는 실수가 아니므로 맞추려 하지 말 것.
+     * <p>카테고리가 비활성으로 내려간 매물도 같은 이유로 열어준다({@link #resolveCategoryIds}는
+     * 목록에서만 뺀다) — "검색엔 안 뜨지만 링크가 있으면 보인다"가 의도이므로, 목록과 상세의
+     * 이 판단 차이를 맞추려 하지 말 것.
      */
     public ListingDetailResponse getListing(String publicId) {
         Listing listing = listingRepository.findByPublicIdAndDeletedAtIsNull(publicId)
@@ -185,12 +177,11 @@ public class ListingQueryService {
                         CommonErrorCode.INVALID_INPUT, "존재하지 않는 카테고리입니다."));
         if (category.isLeaf()) {
             if (!category.isActive()) {
-                // 비활성 중분류의 매물은 목록에 내보내지 않는다. 대분류로 걸렀을 때 비활성 자식이
-                // 빠지는 것(아래 findByParentIdAndActiveTrue)과 결과가 같아야 하기 때문이다 —
-                // 그러지 않으면 "위에서 찾으면 없고 code를 직접 찍으면 나오는" 상태가 된다.
-                // 400이 아니라 빈 결과인 이유: code 자체는 여전히 유효하고, 예전 링크·북마크로
-                // 들어온 요청을 에러로 돌려보낼 이유가 없다. 등록(ListingCommandService)은
-                // 새로 다는 것을 막아야 하므로 400이 맞고, 조회와 판단이 갈리는 것이 정상이다.
+                // 비활성 중분류는 목록에서 뺀다 — 대분류로 걸렀을 때 비활성 자식이 빠지는 것
+                // (findByParentIdAndActiveTrue)과 결과가 같아야 한다.
+                // 400이 아니라 빈 결과인 이유: code 자체는 여전히 유효해 예전 링크·북마크를 에러로
+                // 돌려보낼 이유가 없다. 등록은 새로 다는 것을 막아야 하므로 400이 맞다 — 조회와
+                // 판단이 갈리는 게 정상이다.
                 return List.of(-1L);
             }
             return List.of(category.getId());

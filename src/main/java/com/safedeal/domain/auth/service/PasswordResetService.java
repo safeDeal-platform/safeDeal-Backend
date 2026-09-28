@@ -23,10 +23,8 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * 비밀번호 찾기 (AUTH-7) — 재설정 링크 TTL 30분, 1회용.
- *
- * 이메일 인증(24시간)보다 수명이 짧은 이유는 이 링크 하나로 계정을 통째로 가져갈 수 있기
- * 때문이다. 메일함이 열려 있는 시간을 최소화한다.
+ * 비밀번호 찾기 (AUTH-7) — 재설정 링크 TTL 30분, 1회용. 이메일 인증(24시간)보다 짧게 두는
+ * 이유는 이 링크 하나로 계정을 통째로 가져갈 수 있어서다.
  */
 @Service
 @RequiredArgsConstructor
@@ -44,19 +42,15 @@ public class PasswordResetService {
     private final MailProperties mailProperties;
 
     /**
-     * 재설정 링크를 보낸다.
+     * 재설정 링크를 보낸다. 계정이 없거나 OAuth 전용이어도 예외 없이 항상 같은 200을 준다 —
+     * 응답이 다르면 이 API가 가입 여부 조회기가 된다.
      *
-     * <b>계정이 없거나 OAuth 전용이어도 예외를 던지지 않는다</b> — 응답이 달라지면 이 API가 곧
-     * "가입 여부 조회기"가 되어 이메일 열거 통로가 된다. 컨트롤러는 항상 같은 200을 준다.
-     *
-     * OAuth 전용 계정(비밀번호 없음)에는 재설정 링크 대신 공급자 복구 안내를 <b>메일 본문에</b>
-     * 담아 보낸다. 화면에 "이 계정은 소셜 계정입니다"라고 띄우면 그 자체가 열거 정보라,
-     * 진짜 주인만 읽을 수 있는 메일로 옮기는 것이다(정책).
+     * OAuth 전용 계정에는 재설정 링크 대신 복구 안내를 메일 본문으로 보낸다 — 화면에 안내를
+     * 띄우면 그 자체가 열거 정보가 된다(정책).
      */
     @Transactional
     public void requestReset(String email, String clientIp) {
-        // 계정을 보기 전에 센다. 존재하는 주소만 세면 429가 나오는지 여부로 가입 여부를
-        // 알 수 있어, 열거를 막으려고 응답을 맞춰둔 노력이 그대로 무너진다.
+        // 계정을 보기 전에 먼저 센다 — 존재하는 주소만 센다면 429 여부로 가입 여부가 드러난다.
         if (!mailSendRateLimiter.allowPasswordResetRequest(JwtTokenProvider.hash(email), clientIp)) {
             throw new BusinessException(AuthErrorCode.TOO_MANY_MAIL_REQUESTS);
         }
@@ -84,10 +78,8 @@ public class PasswordResetService {
     }
 
     /**
-     * 새 비밀번호를 설정하고 <b>해당 유저의 refresh를 전부 무효화</b>한다(정책).
-     *
-     * 전부 끊는 이유: 비밀번호를 바꾸는 상황은 대개 계정을 빼앗겼을 때다. 공격자가 이미 다른
-     * 기기에서 로그인해 있으면 비밀번호만 바꿔봐야 그 세션이 그대로 살아 있다.
+     * 새 비밀번호를 설정하고 해당 유저의 로그인 세션을 전부 끊는다(정책) — 비밀번호를 바꾸는
+     * 상황은 대개 계정을 뺏겼을 때라, 세션까지 안 끊으면 공격자가 다른 기기에 그대로 남는다.
      */
     @Transactional
     public void resetPassword(String rawToken, String newPassword) {
@@ -100,8 +92,7 @@ public class PasswordResetService {
                 .filter(User::hasPassword)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN));
 
-        // 1회용 판정은 조건부 UPDATE가 한다. 링크를 동시에 두 번 제출하면 서로 다른 비밀번호가
-        // 둘 다 적용되고 마지막 쓰기가 이긴다 — 영향 행이 1인 요청만 통과시킨다.
+        // 1회용 판정은 조건부 UPDATE가 한다 — 동시에 두 번 제출해도 영향 행이 1인 요청만 통과한다.
         if (tokenRepository.markUsed(token.getId(), now) != 1) {
             throw new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN);
         }

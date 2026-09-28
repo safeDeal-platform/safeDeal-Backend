@@ -8,18 +8,9 @@ import java.time.Instant;
 /**
  * 시세 조회 응답. (API 명세서 — 시세 조회)
  *
- * MVP는 단순 최근값 표시라 median/min/max만 내려준다(구간값·변동폭%는 이후). 표본이 부족하면
- * 가격을 감추고 표본 수 + 안내 메시지만 준다 — 신뢰할 수 없는 소수 표본으로 "시세"를 오인하게
- * 만들지 않기 위함이다.
- *
- * {@code @JsonInclude(NON_NULL)}로 두 형태를 한 DTO로 표현한다:
- * <ul>
- *   <li>충분: {@code {categoryCode, period, sampleCount, medianPrice, minPrice, maxPrice, calculatedAt}}</li>
- *   <li>부족: {@code {categoryCode, period, sampleCount, message}}</li>
- * </ul>
- *
- * <p>부족 응답도 요청받은 categoryCode/period를 그대로 돌려준다 — 클라이언트가 여러 카테고리를
- * 병렬 조회할 때 응답을 요청에 매칭하고 캐시 키로 쓸 수 있어야 하기 때문이다.
+ * 표본이 부족하면 가격을 감추고 표본 수와 안내 메시지만 준다 — 적은 표본으로 계산한 값을
+ * "시세"로 오인하지 않게 하기 위해서다. {@code @JsonInclude(NON_NULL)}로 충분/부족 두 형태를
+ * 한 DTO로 표현한다.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record PriceStatisticsResponse(

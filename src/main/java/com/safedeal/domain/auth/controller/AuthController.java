@@ -35,11 +35,8 @@ import java.time.Instant;
 /**
  * 인증 API — 회원가입·로그인·재발급·로그아웃 (AUTH-1 ~ AUTH-4, AUTH-8).
  *
- * <b>토큰 전달 규칙</b>(정책 '쿠키 전달'): access는 응답 바디로 주고 프런트가 메모리에만
- * 보관한다(localStorage 금지). refresh는 httpOnly + Secure + SameSite=Lax 쿠키로만 나가며,
- * 경로를 /api/auth로 좁혀 일반 데이터 요청에는 아예 실리지 않게 한다.
- *
- * OAuth(AUTH-5)는 카카오 앱키가 나오는 대로 이 컨트롤러에 추가된다.
+ * access 토큰은 응답 바디로, refresh 토큰은 httpOnly 쿠키로만 내려준다(정책 '쿠키 전달') —
+ * 자바스크립트가 읽을 수 있는 곳에 refresh를 두면 탈취당했을 때 그대로 도난당한다.
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -55,10 +52,8 @@ public class AuthController {
     private final PasswordResetService passwordResetService;
 
     /**
-     * 회원가입 (AUTH-1). 정책상 가입 즉시 로그인 상태로 진입하므로 토큰까지 함께 준다.
-     *
-     * 클라이언트 IP가 필요한 이유: 가입 한 번이 인증 메일 한 통이라, 제한이 없으면 주소를
-     * 바꿔가며 가입 요청을 반복해 공급자 발송 쿼터를 통째로 태울 수 있다.
+     * 회원가입 (AUTH-1). 가입하면 바로 로그인 상태가 되므로 토큰도 함께 준다.
+     * 클라이언트 IP가 필요한 이유: 주소를 바꿔가며 가입을 반복하면 인증 메일 발송 한도를 다 써버릴 수 있어서다.
      */
     @PostMapping("/signup")
     public ResponseEntity<ApiResponse<AuthResponse>> signup(@Valid @RequestBody SignupRequest request,
@@ -93,12 +88,8 @@ public class AuthController {
     }
 
     /**
-     * 로그아웃 (AUTH-4).
-     *
-     * 인증을 요구하지 않는다 — access가 만료된 뒤에도 로그아웃은 돼야 하기 때문이다.
-     * 그리고 서버 측 무효화(Redis 쓰기) 성공 여부와 무관하게 <b>쿠키는 반드시 지우고 200을
-     * 반환한다</b>. 쿠키를 남기면 사용자가 로그아웃 실패로 보고 브라우저만 닫고 떠났을 때,
-     * 다음 사람이 그 브라우저의 silent refresh로 남의 계정에 로그인된다(공용 PC).
+     * 로그아웃 (AUTH-4). access가 만료된 뒤에도 호출돼야 하므로 인증을 요구하지 않는다.
+     * 서버 쪽 처리가 실패해도 쿠키는 반드시 지운다 — 남으면 공용 PC에서 다음 사람이 자동 로그인될 수 있다.
      */
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout(
@@ -111,10 +102,8 @@ public class AuthController {
     }
 
     /**
-     * 이메일 인증 완료 (AUTH-6).
-     *
-     * 인증을 요구하지 않는다 - 메일 링크를 누르는 시점에 그 브라우저가 로그인 상태라는
-     * 보장이 없다(PC에서 가입하고 폰 메일함에서 누르는 경우). 토큰 자체가 본인 확인이다.
+     * 이메일 인증 완료 (AUTH-6). 인증을 요구하지 않는다 — 메일 링크를 누르는 기기가 가입한
+     * 기기와 다를 수 있어서다(PC에서 가입, 폰에서 클릭). 토큰 자체가 본인 확인 역할을 한다.
      */
     @PostMapping("/email/verify")
     public ResponseEntity<ApiResponse<Void>> verifyEmail(@Valid @RequestBody EmailVerifyRequest request) {
@@ -123,10 +112,8 @@ public class AuthController {
     }
 
     /**
-     * 인증 메일 재발송 (AUTH-6).
-     *
-     * 여기는 반대로 인증이 필요하다. 이메일만 받아 재발송해 주면 응답으로 가입 여부를
-     * 확인할 수 있고, 남의 주소로 메일을 대신 쏘는 발송기가 된다. 본인 계정에만 보낸다.
+     * 인증 메일 재발송 (AUTH-6). 반대로 인증을 요구한다 — 이메일만 받아 보내주면 남의 주소로
+     * 메일을 대신 쏘는 발송기가 되고, 응답으로 가입 여부까지 확인할 수 있게 된다.
      */
     @PostMapping("/email/verify/resend")
     public ResponseEntity<ApiResponse<Void>> resendVerificationMail(
@@ -136,11 +123,8 @@ public class AuthController {
     }
 
     /**
-     * 비밀번호 재설정 링크 요청 (AUTH-7).
-     *
-     * 계정이 없어도, OAuth 전용이어도 <b>똑같은 200</b>을 준다. 응답이 달라지는 순간 이
-     * API는 로그인 없이 쓸 수 있는 가입 여부 조회기가 된다. 소셜 계정이라는 안내는 화면이
-     * 아니라 메일 본문으로 보낸다 - 진짜 주인만 읽을 수 있는 경로다(정책).
+     * 비밀번호 재설정 링크 요청 (AUTH-7). 계정이 없거나 OAuth 전용이어도 항상 같은 200을 준다 —
+     * 응답이 다르면 로그인 없이 가입 여부를 확인하는 통로가 된다(정책).
      */
     @PostMapping("/password/reset-request")
     public ResponseEntity<ApiResponse<Void>> requestPasswordReset(
@@ -150,11 +134,8 @@ public class AuthController {
     }
 
     /**
-     * 새 비밀번호 설정 (AUTH-7).
-     *
-     * 성공하면 그 유저의 refresh가 전부 끊긴다. 비밀번호를 바꾸는 상황은 대개 계정을
-     * 빼앗겼을 때인데, 공격자가 다른 기기에 로그인해 있으면 비밀번호만 바꿔봐야
-     * 그 세션이 그대로 살아 있다.
+     * 새 비밀번호 설정 (AUTH-7). 성공하면 그 유저의 로그인 세션을 전부 끊는다 — 비밀번호를
+     * 바꾸는 상황은 대개 계정을 뺏겼을 때라, 세션까지 안 끊으면 공격자가 다른 기기에 그대로 남는다.
      */
     @PostMapping("/password/reset")
     public ResponseEntity<ApiResponse<Void>> resetPassword(
@@ -191,11 +172,8 @@ public class AuthController {
     }
 
     /**
-     * 클라이언트 IP.
-     *
-     * X-Forwarded-For를 신뢰하지 않는다 — 클라이언트가 마음대로 넣을 수 있어서 헤더만 바꿔가며
-     * 브루트포스 잠금을 무한히 회피할 수 있다. ALB 뒤에 붙어 실제 IP가 필요해지면 그때
-     * 신뢰 프록시 설정(ForwardedHeaderFilter)을 함께 넣어야 한다.
+     * 클라이언트 IP. X-Forwarded-For는 신뢰하지 않는다 — 클라이언트가 헤더값을 마음대로 바꿔
+     * 로그인 잠금을 무한히 피해갈 수 있어서다.
      */
     private String clientIp(HttpServletRequest request) {
         return request.getRemoteAddr();
