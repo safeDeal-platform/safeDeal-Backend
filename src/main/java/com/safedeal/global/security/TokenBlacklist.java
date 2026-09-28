@@ -9,7 +9,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * 로그아웃·비밀번호 변경으로 무효화된 access 토큰의 jti 목록(정책 '토큰 무효화'). 조회하는
+ * 로그아웃 시 무효화하는 access 토큰의 jti 목록(정책 '토큰 무효화'). 조회하는
  * 쪽이 {@link JwtAuthenticationFilter}(global)라서 domain/auth가 아니라 global에 둔다.
  *
  * 조회는 fail-open이다(정책 개정 2026-08-30) — Redis가 죽었다고 차단하면 정상 사용자

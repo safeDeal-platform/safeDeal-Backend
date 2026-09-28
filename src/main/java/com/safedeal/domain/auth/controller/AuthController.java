@@ -134,8 +134,8 @@ public class AuthController {
     }
 
     /**
-     * 새 비밀번호 설정 (AUTH-7). 성공하면 그 유저의 로그인 세션을 전부 끊는다 — 비밀번호를
-     * 바꾸는 상황은 대개 계정을 뺏겼을 때라, 세션까지 안 끊으면 공격자가 다른 기기에 그대로 남는다.
+     * 새 비밀번호 설정 (AUTH-7). 성공하면 그 유저의 refresh 토큰을 전부 무효화한다. 기존
+     * access 토큰은 만료 전까지 유효할 수 있다.
      */
     @PostMapping("/password/reset")
     public ResponseEntity<ApiResponse<Void>> resetPassword(
