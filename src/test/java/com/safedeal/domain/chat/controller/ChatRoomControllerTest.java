@@ -1,7 +1,9 @@
 package com.safedeal.domain.chat.controller;
 
+import com.safedeal.domain.chat.dto.ChatReadResponse;
 import com.safedeal.domain.chat.dto.ChatRoomCreateRequest;
 import com.safedeal.domain.chat.dto.ChatRoomCreateResponse;
+import com.safedeal.domain.chat.service.ChatReadCommandService;
 import com.safedeal.domain.chat.service.ChatRoomCommandService;
 import com.safedeal.domain.listing.entity.ListingStatus;
 import com.safedeal.global.exception.BusinessException;
@@ -27,20 +29,22 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 채팅방 생성 컨트롤러 테스트 — 서비스는 목, principal은 SecurityContext로 직접 주입한다
+ * 채팅방 컨트롤러 테스트 — 서비스는 목, principal은 SecurityContext로 직접 주입한다
  * (standalone). {@code NotificationControllerTest}와 같은 구성이다.
  */
 class ChatRoomControllerTest {
 
     private final ChatRoomCommandService chatRoomCommandService = mock(ChatRoomCommandService.class);
+    private final ChatReadCommandService chatReadCommandService = mock(ChatReadCommandService.class);
 
     private final MockMvc mockMvc = MockMvcBuilders
-            .standaloneSetup(new ChatRoomController(chatRoomCommandService))
+            .standaloneSetup(new ChatRoomController(chatRoomCommandService, chatReadCommandService))
             .setCustomArgumentResolvers(new AuthenticationPrincipalArgumentResolver())
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
@@ -123,6 +127,68 @@ class ChatRoomControllerTest {
         mockMvc.perform(post("/api/chat/rooms")
                         .contentType("application/json")
                         .content("{\"listingId\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("C001"));
+    }
+
+    @Test
+    @DisplayName("읽음 처리 — principal의 userId·경로 roomId·본문 lastReadMessageId를 그대로 서비스에 넘기고 응답을 그대로 돌려준다")
+    void markAsRead_delegatesWithPrincipalUserIdAndPathRoomId() throws Exception {
+        when(chatReadCommandService.markAsRead(42L, "01J3ARSNIPROOM000000000000", 1024L))
+                .thenReturn(new ChatReadResponse(1024L));
+
+        mockMvc.perform(patch("/api/chat/rooms/01J3ARSNIPROOM000000000000/read")
+                        .contentType("application/json")
+                        .content("{\"lastReadMessageId\":1024}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.lastReadMessageId").value(1024));
+
+        verify(chatReadCommandService).markAsRead(42L, "01J3ARSNIPROOM000000000000", 1024L);
+    }
+
+    @Test
+    @DisplayName("읽음 처리 — 서비스가 404 C002를 던지면 그대로 404 C002")
+    void markAsRead_serviceThrowsNotFound_isNotFound() throws Exception {
+        doThrow(new BusinessException(CommonErrorCode.RESOURCE_NOT_FOUND, "채팅방을 찾을 수 없습니다."))
+                .when(chatReadCommandService).markAsRead(42L, "01J3ARSNIPROOM000000000000", 1024L);
+
+        mockMvc.perform(patch("/api/chat/rooms/01J3ARSNIPROOM000000000000/read")
+                        .contentType("application/json")
+                        .content("{\"lastReadMessageId\":1024}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("C002"));
+    }
+
+    @Test
+    @DisplayName("읽음 처리 — 서비스가 400 C001을 던지면(다른 방 메시지 등) 그대로 400 C001")
+    void markAsRead_serviceThrowsInvalidInput_isBadRequest() throws Exception {
+        doThrow(new BusinessException(CommonErrorCode.INVALID_INPUT, "존재하지 않는 메시지입니다."))
+                .when(chatReadCommandService).markAsRead(42L, "01J3ARSNIPROOM000000000000", 9999L);
+
+        mockMvc.perform(patch("/api/chat/rooms/01J3ARSNIPROOM000000000000/read")
+                        .contentType("application/json")
+                        .content("{\"lastReadMessageId\":9999}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("C001"));
+    }
+
+    @Test
+    @DisplayName("읽음 처리 — 본문에 lastReadMessageId가 없으면 400 C001 (검증 실패)")
+    void markAsRead_missingField_isBadRequest() throws Exception {
+        mockMvc.perform(patch("/api/chat/rooms/01J3ARSNIPROOM000000000000/read")
+                        .contentType("application/json")
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("C001"));
+    }
+
+    @Test
+    @DisplayName("읽음 처리 — lastReadMessageId가 숫자가 아니면 400 C001")
+    void markAsRead_nonNumericField_isBadRequest() throws Exception {
+        mockMvc.perform(patch("/api/chat/rooms/01J3ARSNIPROOM000000000000/read")
+                        .contentType("application/json")
+                        .content("{\"lastReadMessageId\":\"abc\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("C001"));
     }
