@@ -1,8 +1,10 @@
-package com.safedeal.domain.chat.service;
+package com.safedeal.global.util;
 
 /**
- * "이 예외가 특정 UNIQUE 제약 위반인가"를 판정한다. 채팅의 재시도 서비스 두 곳이 같은 판정을
- * 쓰므로 미묘한 부분을 한 곳에 둔다.
+ * "이 예외가 특정 UNIQUE 제약 위반인가"를 판정한다. 원래 채팅 도메인에만 있었으나(재시도
+ * 서비스 두 곳이 같은 판정을 썼다), 신고 도메인도 같은 판정이 필요해 여기로 승격했다 — 판정
+ * 로직 자체는 특정 도메인의 제약이 아니라 MySQL 예외 모양에 대한 것이라 도메인에 묶일 이유가
+ * 없다.
  *
  * <p><b>왜 Hibernate의 {@code getConstraintName()}을 안 쓰나:</b> MySQL 드라이버의 메시지는
  * {@code Duplicate entry '<위반한 값>' for key '<테이블.제약>'} 형태다. 앞쪽 {@code <위반한 값>}에는
@@ -17,9 +19,10 @@ package com.safedeal.domain.chat.service;
  * <p><b>한계(숨기지 않는다):</b> MySQL 8 메시지 형식에 의존한다. 형식을 못 읽으면 <b>재시도하지
  * 않는 쪽</b>(fail-safe)으로 판정한다 — 원인을 모르는 위반을 다시 시도해 원래 오류를 가리는 것보다
  * 그대로 드러내는 편이 안전하다. 그 대가는 경쟁에서 진 요청이 재시도 없이 409를 받는 것이다.
- * 실제 MySQL이 돌려주는 이름 형태는 {@code UniqueViolationsTest}가 고정한다.
+ * 실제 MySQL이 돌려주는 이름 형태는 {@link com.safedeal.domain.chat.service.UniqueViolationsTest}
+ * (실제 MySQL)와 {@link UniqueViolationsParsingTest}(DB 없이 파싱 경계)가 고정한다.
  */
-final class UniqueViolations {
+public final class UniqueViolations {
 
     private static final String KEY_MARKER = " for key '";
 
@@ -30,7 +33,7 @@ final class UniqueViolations {
     }
 
     /** 위반된 제약의 이름(MySQL 8은 {@code 테이블.제약}). 못 읽으면 null. */
-    static String violatedConstraint(Throwable error) {
+    public static String violatedConstraint(Throwable error) {
         Throwable root = deepestCause(error);
         String message = root == null ? null : root.getMessage();
         if (message == null) {
@@ -48,7 +51,7 @@ final class UniqueViolations {
         return message.substring(start, end);
     }
 
-    static boolean causedBy(Throwable error, String constraintName) {
+    public static boolean causedBy(Throwable error, String constraintName) {
         String actual = violatedConstraint(error);
         if (actual == null) {
             return false;
