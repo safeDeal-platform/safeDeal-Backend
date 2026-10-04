@@ -63,4 +63,28 @@ class ChatMessageRepositoryTest extends IntegrationTestSupport {
         assertThat(chatMessageRepository.findByRoomIdAndClientMessageId(999L, "no-such-id"))
                 .isEmpty();
     }
+
+    @Test
+    @DisplayName("같은 방 메시지면 true (읽음 처리 CHT-3의 소속 확인)")
+    void existsByIdAndRoomId_sameRoom_isTrue() {
+        ChatMessage saved = chatMessageRepository.saveAndFlush(
+                ChatMessage.write(10L, 20L, "안녕하세요", "c-uuid-1"));
+
+        assertThat(chatMessageRepository.existsByIdAndRoomId(saved.getId(), 10L)).isTrue();
+    }
+
+    @Test
+    @DisplayName("다른 방 메시지면 false — room_id는 FK가 아니라 이 조회로 소속을 확인해야 한다")
+    void existsByIdAndRoomId_differentRoom_isFalse() {
+        ChatMessage saved = chatMessageRepository.saveAndFlush(
+                ChatMessage.write(10L, 20L, "안녕하세요", "c-uuid-1"));
+
+        assertThat(chatMessageRepository.existsByIdAndRoomId(saved.getId(), 11L)).isFalse();
+    }
+
+    @Test
+    @DisplayName("없는 id는 false")
+    void existsByIdAndRoomId_missingId_isFalse() {
+        assertThat(chatMessageRepository.existsByIdAndRoomId(999999L, 10L)).isFalse();
+    }
 }
