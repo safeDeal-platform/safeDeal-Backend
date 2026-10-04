@@ -68,6 +68,7 @@ public class ListingController {
     /**
      * 매물 상세 — 비로그인 허용이라 {@code user}는 null일 수 있다. 조회수는 상세를 먼저 찾은
      * 뒤에 올려서, 없는 매물이나 비공개 매물을 찔러보는 요청으로는 숫자가 오르지 않게 한다.
+     * 응답의 조회수는 이번 조회가 반영되기 직전 값이다.
      */
     @GetMapping("/{publicId}")
     public ApiResponse<ListingDetailResponse> getListing(

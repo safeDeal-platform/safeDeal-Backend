@@ -42,8 +42,8 @@ public class RedisConfig {
 
     /**
      * rate limit 카운터용 Lua 스크립트 등록. 실제 로직은
-     * {@code src/main/resources/scripts/rate_limit.lua}에 있다 — INCR 후 최초 호출에만
-     * EXPIRE를 실행해 카운트 증가와 TTL 설정이 둘 다 되거나 둘 다 안 되게 만든다.
+     * {@code src/main/resources/scripts/rate_limit.lua}에 있다 — INCR 후 첫 요청(카운트 1)이거나
+     * TTL이 없을 때 EXPIRE를 실행한다. Lua는 앞 명령을 롤백하지 않으므로, EXPIRE가 실패하지 않도록 TTL 상한을 사전 검증한다.
      *
      * 이 빈은 반드시 싱글턴으로 등록한다 — 매번 새로 만들면 Spring Data Redis가 스크립트를
      * 캐시해두고 재사용하는 이점(EVALSHA)이 사라진다. 새 Lua 스크립트가 필요하면 이 빈을

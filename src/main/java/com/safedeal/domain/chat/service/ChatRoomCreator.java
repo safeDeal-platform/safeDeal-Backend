@@ -39,7 +39,7 @@ public class ChatRoomCreator {
                 .orElse(null);
         if (existing != null) {
             if (existing.getBuyerHiddenAt() != null) {
-                // 이미 보이는 방이면 이 조건부 UPDATE가 0행을 바꾸고 끝난다(매번 불러도 안전).
+                // 숨겨진 방일 때만 복구 UPDATE를 낸다 — 보이는 방이면 이 블록을 건너뛴다.
                 chatRoomRepository.rejoinAsBuyer(existing.getId(), Instant.now());
             }
             return ChatRoomCreateResponse.of(existing, listing, false);

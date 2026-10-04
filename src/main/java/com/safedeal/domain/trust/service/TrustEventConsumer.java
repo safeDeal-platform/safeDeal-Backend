@@ -89,7 +89,7 @@ public class TrustEventConsumer {
     /**
      * 멱등 키. payload의 {@code eventId}를 먼저 쓴다 — RPT-6은 이를 "대상 타입 + 대상 ID"로
      * 만들어 재발행해도 같은 값이지만, 봉투의 eventId는 매번 새로 생성돼(UUID) 재시도를
-     * 못 걸러낼 수 있다.
+     * 못 걸러낼 수 있다. payload에 없으면 봉투의 eventId로 폴백한다.
      */
     private String idempotencyKey(EventEnvelope<Map<String, Object>> envelope) {
         Object fromPayload = payload(envelope).get("eventId");
