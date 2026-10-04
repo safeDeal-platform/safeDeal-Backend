@@ -14,12 +14,10 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * 비밀번호 재설정 토큰 (정책 AUTH-7) — TTL 30분, 1회용.
+ * 비밀번호 재설정 토큰 (정책 AUTH-7) — TTL 30분, 1회용. 이메일 인증 토큰(24시간)보다 짧게
+ * 두는 이유: 이 링크 하나로 계정을 통째로 가져갈 수 있어 탈취 시 피해가 크다.
  *
- * 이메일 인증 토큰(24시간)보다 수명을 훨씬 짧게 두는 이유: 이 링크 하나면 비밀번호를 바꿔
- * 계정을 통째로 가져갈 수 있어 탈취 시 피해가 크다. 메일함이 열려 있는 시간을 최소화한다.
- *
- * 해시 저장·1회용 판정·상속 클래스 선택 이유는 {@link EmailVerificationToken}과 같다.
+ * 해시 저장·1회용 판정 이유는 {@link EmailVerificationToken}과 같다.
  */
 @Entity
 @Table(name = "password_reset_tokens")

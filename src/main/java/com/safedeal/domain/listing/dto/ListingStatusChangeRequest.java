@@ -3,10 +3,8 @@ package com.safedeal.domain.listing.dto;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * 판매자 수동 상태 전이.
- *
- * <p>구매자용 전이는 두지 않는다 — 채팅만 걸어둔 제3자가 남의 공개 매물을 판매완료로 잠글 수
- * 있다. 판매자가 거짓으로 누르는 건 자기 물건을 못 파는 자기 손해라 피해자가 없다.
+ * 판매자 수동 상태 전이. 구매자용 전이는 두지 않는다 — 채팅만 걸어둔 제3자가 남의 매물을
+ * 판매완료로 잠글 수 있어서다. 판매자가 거짓으로 눌러도 자기 손해라 피해자가 없다.
  */
 public record ListingStatusChangeRequest(@NotNull(message = "action은 필수입니다") Action action) {
 

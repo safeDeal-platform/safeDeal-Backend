@@ -9,13 +9,8 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
- * 매물 수정 요청.
- *
- * <p>{@code version}은 필수다 — 클라이언트가 어떤 판을 보고 고쳤는지 알아야, 그 사이 다른
- * 수정이 반영됐을 때 덮어쓰지 않고 409로 되돌려줄 수 있다.
- *
- * <p>이미지(imageKeys)는 아직 받지 않는다. 이미지 변경 시 image_version을 올리고 검증 대기로
- * 되돌리는 규칙은 업로드가 붙을 때 함께 넣는다.
+ * 매물 수정 요청. {@code version}은 필수다 — 그 사이 다른 수정이 반영됐으면 덮어쓰지 않고
+ * 409로 되돌려주기 위해서다. 이미지(imageKeys)는 업로드 기능이 붙을 때 함께 받는다.
  */
 public record ListingUpdateRequest(
 

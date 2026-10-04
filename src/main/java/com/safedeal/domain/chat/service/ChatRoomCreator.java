@@ -15,11 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
-/**
- * 채팅방 생성의 단일 시도(트랜잭션 경계). {@link ChatRoomCommandService}가 이 메서드를
- * 감싸 UNIQUE 충돌 시 재시도한다 — 재시도 catch가 이 트랜잭션 "밖"에 있어야 하므로 빈을
- * 분리했다(자기 호출은 프록시를 안 타 {@code @Transactional}이 무시된다).
- */
+/** 채팅방 생성의 단일 시도(트랜잭션 경계). {@link ChatRoomCommandService}가 UNIQUE 충돌 시 이 메서드를 재시도한다. */
 @Service
 @RequiredArgsConstructor
 public class ChatRoomCreator {
@@ -29,10 +25,8 @@ public class ChatRoomCreator {
     private final PublicIdGenerator publicIdGenerator;
 
     /**
-     * API 명세서 CHT-1 처리 순서. <b>기존 방 조회(2단계)가 매물 상태 검증(3·4단계)보다
-     * 먼저다</b> — 매물이 SOLD든 삭제됐든 BLOCKED든, 기존 방이 있으면 상태를 묻지 않고
-     * 돌려준다("SOLD·삭제 매물은 기존 방만 반환"). 제재(BLOCKED)된 판매자와의 기존
-     * 대화창도 같은 이유로 열어둔다 — 분쟁 증거·환불 협의를 이어갈 수 있어야 한다.
+     * 기존 방 조회가 매물 상태 확인보다 먼저다 — 매물이 팔렸거나 삭제·제재됐어도 기존 방은
+     * 그대로 돌려준다(분쟁 증거·환불 협의를 이어갈 수 있어야 한다).
      */
     @Transactional
     public ChatRoomCreateResponse open(Long buyerId, ChatRoomCreateRequest request) {
@@ -45,8 +39,7 @@ public class ChatRoomCreator {
                 .orElse(null);
         if (existing != null) {
             if (existing.getBuyerHiddenAt() != null) {
-                // 조건부 UPDATE(더티체킹 아님 — 리포지토리 주석 참고). 이미 보이는 방이면 쿼리
-                // 자체를 생략해 재진입마다 쓰기가 나가지 않게 한다.
+                // 숨겨진 방일 때만 복구 UPDATE를 낸다 — 보이는 방이면 이 블록을 건너뛴다.
                 chatRoomRepository.rejoinAsBuyer(existing.getId(), Instant.now());
             }
             return ChatRoomCreateResponse.of(existing, listing, false);

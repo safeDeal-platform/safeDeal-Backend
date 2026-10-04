@@ -8,11 +8,9 @@ import com.safedeal.domain.listing.entity.ListingStatus;
 import java.time.Instant;
 
 /**
- * 매물 상세. 구조는 API 명세서를 따른다 — 카테고리와 지역을 중첩 객체로 묶는다.
- *
- * <p>명세의 {@code images} · {@code seller} · {@code favoriteCount} · {@code verificationBadge}는
- * 아직 넣지 않는다. 이미지 업로드·유저·찜·검증 도메인이 붙은 뒤에 채운다. 지금 빈 값으로
- * 내려보내면 프론트가 "값이 없는 상태"를 계약으로 오해한다.
+ * 매물 상세. API 명세서 구조를 따라 카테고리·지역을 중첩 객체로 묶는다. {@code images} ·
+ * {@code seller} · {@code favoriteCount} · {@code verificationBadge}는 아직 없다 — 관련 도메인이
+ * 붙기 전에 null로 내려보내면 프론트가 값이 없는 상태를 계약으로 오해한다.
  */
 public record ListingDetailResponse(
         String publicId,
@@ -26,9 +24,8 @@ public record ListingDetailResponse(
         int viewCount,
         Instant createdAt,
         /**
-         * 수정 요청이 실어 보내야 하는 낙관적 락 버전. 여기서 내려주지 않으면 클라이언트가
-         * 첫 수정에 쓸 값을 얻을 곳이 없다 — 수정 응답에만 실으면 "수정에 성공해야 수정할
-         * 수 있는" 상태가 된다.
+         * 수정 요청에 그대로 실어 보내는 값이다 — 그 사이 다른 사람이 먼저 고쳤으면 이 값이
+         * 달라져 있어 수정이 실패한다. 여기서 안 주면 첫 수정에 쓸 값을 얻을 곳이 없다.
          */
         Long version
 ) {

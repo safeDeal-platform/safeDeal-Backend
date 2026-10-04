@@ -1,23 +1,16 @@
 package com.safedeal.domain.chat.service;
 
 /**
- * "이 예외가 특정 UNIQUE 제약 위반인가"를 판정한다. 채팅의 재시도 서비스 두 곳이 같은 판정을
- * 쓰므로 미묘한 부분을 한 곳에 둔다.
+ * "이 예외가 특정 UNIQUE 제약 위반인가"를 판정한다.
  *
- * <p><b>왜 Hibernate의 {@code getConstraintName()}을 안 쓰나:</b> MySQL 드라이버의 메시지는
- * {@code Duplicate entry '<위반한 값>' for key '<테이블.제약>'} 형태다. 앞쪽 {@code <위반한 값>}에는
- * 사용자가 넣은 문자열(예: clientMessageId)이 그대로 실린다. Hibernate의 MySQL 추출기는
- * {@code " for key '"}의 <b>첫</b> 출현을 잘라 이름으로 쓰므로(Hibernate 7.2.12 소스로 확인),
- * clientMessageId에 그 구분자를 심으면 엉뚱한 이름이 나온다. 서버가 붙이는 <b>꼬리</b>는 사용자
- * 값이 바꿀 수 없으므로 <b>마지막</b> 출현을 읽는다.
+ * <p>Hibernate의 {@code getConstraintName()}을 쓰지 않는다 — MySQL 오류 메시지
+ * ("Duplicate entry '사용자 값' for key '제약이름'")에서 그 함수는 <b>첫 번째</b> 구분자를
+ * 잘라 쓰는데, 사용자가 넣은 값(clientMessageId 등)에 같은 구분자 문자열을 심으면 엉뚱한
+ * 제약 이름이 나온다. 그래서 서버가 맨 뒤에 붙이는 진짜 제약 이름을 읽으려고 <b>마지막</b>
+ * 구분자를 찾는다.
  *
- * <p>가장 깊은 원인(드라이버 예외)의 메시지만 본다 — 위쪽 래퍼 예외 메시지에는 SQL 문 등이 더
- * 실려 있다. 원인 사슬은 깊이를 제한해 순환이 있어도 끝난다.
- *
- * <p><b>한계(숨기지 않는다):</b> MySQL 8 메시지 형식에 의존한다. 형식을 못 읽으면 <b>재시도하지
- * 않는 쪽</b>(fail-safe)으로 판정한다 — 원인을 모르는 위반을 다시 시도해 원래 오류를 가리는 것보다
- * 그대로 드러내는 편이 안전하다. 그 대가는 경쟁에서 진 요청이 재시도 없이 409를 받는 것이다.
- * 실제 MySQL이 돌려주는 이름 형태는 {@code UniqueViolationsTest}가 고정한다.
+ * <p>이 형식을 못 읽으면 재시도하지 않고 그대로 실패시킨다 — 원인을 모른 채 다시 시도하면
+ * 진짜 오류가 가려질 수 있다.
  */
 final class UniqueViolations {
 

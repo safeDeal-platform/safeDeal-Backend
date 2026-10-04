@@ -5,18 +5,12 @@ import java.util.List;
 /**
  * 카테고리 마스터의 정의 원본. 대분류 12 / 중분류 52.
  *
- * <p>DB가 아니라 코드가 원본인 이유: 로컬은 {@code create-drop}이라 재기동마다 테이블이 비고,
- * 카테고리가 비면 매물 등록이 전부 실패한다. {@code data.sql}은 로컬에서만 돌고 운영
- * ({@code validate} + Flyway)에서는 돌지 않아 두 환경이 갈라진다. 코드에 두고 기동 시
- * upsert하면 어느 환경에서든 같은 결과가 된다.
+ * <p>DB가 아니라 코드가 원본이다 — 로컬은 {@code create-drop}이라 재기동마다 테이블이 비고,
+ * {@code data.sql}은 운영(Flyway)에서 돌지 않아 환경이 갈린다. 코드에 두고 기동 시 upsert하면
+ * 어느 환경이든 결과가 같다.
  *
- * <p><b>code는 바꾸지 않는다.</b> 매물·가격통계가 이 값으로 분류를 참조하므로, code를 바꾸면
- * 과거 데이터의 분류가 끊긴다. 표시명({@code name})만 바꾼다. 더 이상 쓰지 않을 분류는
- * 목록에서 지우면 되고, 시더가 행을 삭제하지 않고 비활성으로 내린다.
- *
- * <p>중분류가 곧 가격통계 집계 단위다. 잘게 쪼갤수록 시세가 정확해지지만, MVP는 여기까지다
- * — 같은 중분류 안의 기종 차이(예: 최신 스마트폰 vs 구형)는 상품명 기반 매칭이 들어가는
- * MVP 이후에 해소한다.
+ * <p><b>code는 바꾸지 않는다</b> — 매물·가격통계가 이 값으로 분류를 참조해, 바꾸면 과거
+ * 데이터의 분류가 끊긴다. 표시명만 바꾸고, 안 쓰는 분류는 시더가 삭제 대신 비활성으로 내린다.
  */
 public final class CategorySeedData {
 
@@ -65,8 +59,7 @@ public final class CategorySeedData {
                     leaf("FURNITURE_DECO", "조명·소품")),
 
             root("LIVING", "생활·주방",
-                    // 주방'가전'(전자레인지 등)은 APPLIANCE_KITCHEN이다. 여기는 그릇·냄비 같은
-                    // 비전자 용품이다. 정리·수납은 FURNITURE_STORAGE와 겹쳐 두지 않는다.
+                    // 주방'가전'은 APPLIANCE_KITCHEN, 여기는 그릇·냄비 같은 비전자 용품이다.
                     leaf("LIVING_KITCHEN", "주방용품"),
                     leaf("LIVING_DAILY", "생활잡화"),
                     leaf("LIVING_BATH", "욕실·청소"),

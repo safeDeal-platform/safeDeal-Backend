@@ -15,24 +15,12 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * (매물, 구매자)당 1개인 채팅방. 정책(노션 "채팅 — 재민" · API 명세서 CHT-1)이 방을 절대
- * 지우지 않기로 했다 — 대화가 분쟁 증거이기 때문이다. 그래서 상태 컬럼이 없다: 판매 완료·
- * 삭제·제재로 매물이 어떻게 되든 방 자체는 그대로 남고, "지금 새 방을 만들 수 있는지"는
- * 매물({@code Listing}) 쪽 상태로만 판정한다.
+ * (매물, 구매자)당 1개인 채팅방. 대화가 분쟁 증거라 절대 지우지 않고, 새 방을 만들 수
+ * 있는지는 매물 상태로만 판단한다 — 그래서 이 엔티티엔 상태 컬럼이 없다.
  *
- * <p><b>{@code MutableEntity}를 상속하는 이유:</b> 재진입 복구·읽음 커서 전진이 실제 UPDATE를
- * 일으킨다 — {@code CreatedEntity}의 판정 기준("실제 UPDATE의 존재 여부",
- * {@code CreatedEntity} 클래스 주석)과 {@code MutableEntity} 클래스 주석이 채팅방의 커서
- * 갱신을 직접 예로 든 것 둘 다에 부합한다.
- *
- * <p><b>이 엔티티의 변경은 전부 {@code ChatRoomRepository}의 조건부 UPDATE로 한다</b>
- * (재진입 복구·읽음 커서). 엔티티를 읽어 setter로 바꾸는 더티체킹은 쓰지 않는다 — 그 행의
- * 컬럼 <i>전부</i>를 처음 읽은 값으로 다시 써서, 그 사이 다른 트랜잭션이 올린 커서를 옛
- * 값으로 되돌린다(lost update). 그래서 이 엔티티에는 상태를 바꾸는 메서드가 없다.
- *
- * <p><b>{@code sellerId}를 비정규화해 중복 저장하는 이유:</b> 알림 도메인의 {@code targetId}
- * 처럼 다른 도메인을 join 없이 자기완결적으로 응답하려는 것이다. {@code Listing.sellerId}는
- * {@code updatable = false}라 원본이 바뀌어 어긋날 위험이 없다.
+ * <p>재진입 복구·읽음 커서 갱신은 전부 {@code ChatRoomRepository}의 조건부 UPDATE로 한다.
+ * 값을 읽어와 setter로 고치면, 그 사이 다른 요청이 올려둔 읽음 커서를 예전 값으로 덮어써
+ * 버린다 — 그래서 이 엔티티에는 상태를 바꾸는 메서드가 없다.
  */
 @Entity
 @Getter
@@ -41,20 +29,14 @@ import java.time.Instant;
         name = "chat_rooms",
         uniqueConstraints = {
                 @UniqueConstraint(name = ChatRoom.UK_PUBLIC_ID, columnNames = "public_id"),
-                // 동시 클릭의 최종 방어(API 명세서 CHT-1). 선두를 buyer_id로 둔 이유는 다음
-                // 슬라이스의 "내 채팅방 목록(구매자)"이 이 인덱스를 그대로 타게 하기 위해서다
-                // — 제약의 의미 자체는 컬럼 순서와 무관하다.
+                // 같은 매물에 같은 구매자가 겹쳐 눌러도 방은 하나만 생기게 막는 최종 방어선.
                 @UniqueConstraint(name = ChatRoom.UK_BUYER_LISTING,
                         columnNames = {"buyer_id", "listing_id"})
         }
 )
 public class ChatRoom extends MutableEntity {
 
-    /**
-     * 제약 이름을 상수로 둔다 — {@code ChatRoomCommandService}가 "이 제약 위반일 때만" 재시도
-     * 하는데, 애너테이션과 판정이 각자 문자열을 들고 있으면 한쪽만 바뀌는 순간 재시도가
-     * 조용히 멈춘다.
-     */
+    /** 제약 이름 상수 — 재시도 판정과 애너테이션이 같은 문자열을 써야 한다(하나만 바뀌면 재시도가 조용히 멈춘다). */
     public static final String UK_PUBLIC_ID = "uk_chat_rooms_public_id";
     public static final String UK_BUYER_LISTING = "uk_chat_rooms_buyer_listing";
 
@@ -72,27 +54,18 @@ public class ChatRoom extends MutableEntity {
     @Column(name = "buyer_id", nullable = false, updatable = false)
     private Long buyerId;
 
-    /** 비정규화(클래스 주석 참고). */
+    /** 매물 조인 없이 판매자 id를 바로 쓰려는 비정규화(원본 컬럼이 안 바뀌어 어긋날 위험 없음). */
     @Column(name = "seller_id", nullable = false, updatable = false)
     private Long sellerId;
 
-    /**
-     * 구매자가 방을 나가(숨겨) 목록에서 안 보이는 시각. null이면 보인다. 판매자 쪽
-     * ({@code sellerHiddenAt})을 쓰는 경로는 이번 슬라이스에 없다 — 숨기기는 CHT-4, 판매자
-     * 복구는 메시지 수신(CHT-2) 소유다. 컬럼만 먼저 두고 쓰는 코드는 나중 슬라이스가 채운다.
-     */
+    /** 구매자가 방을 나가(숨겨) 목록에서 안 보이는 시각. null이면 보인다. */
     @Column(name = "buyer_hidden_at")
     private Instant buyerHiddenAt;
 
     @Column(name = "seller_hidden_at")
     private Instant sellerHiddenAt;
 
-    /**
-     * 이 방에서 구매자가 마지막으로 읽은 메시지 id(정책 "채팅 — 재민": 메시지별 is_read
-     * 대신 방에 커서 2개). 기본값 0 — {@code null}로 두면 조건부 갱신의 {@code < 새값}
-     * 비교가 SQL에서 UNKNOWN이 돼 첫 갱신이 영원히 실패한다(무엇과도 비교 불가). 0은
-     * "존재할 수 없는 messageId"이자 "아직 아무것도 안 읽음"을 동시에 의미해 자연스럽다.
-     */
+    /** 구매자가 마지막으로 읽은 메시지 id. 기본값 0 — null이면 "새값보다 작은지" 비교 자체가 안 돼 첫 갱신이 영영 실패한다. */
     @Column(name = "buyer_last_read_message_id", nullable = false)
     private Long buyerLastReadMessageId = 0L;
 
@@ -112,10 +85,7 @@ public class ChatRoom extends MutableEntity {
         return new ChatRoom(publicId, listingId, buyerId, sellerId);
     }
 
-    /**
-     * 구매자·판매자 둘 중 하나인지(참여자 판정, {@code Listing.isOwnedBy}와 같은 형태).
-     * 메시지 저장 시 "누가 보냈는지"로 어느 쪽 커서를 갱신할지 가르는 데 쓴다.
-     */
+    /** 구매자인지. 메시지를 보낸 사람에 따라 어느 쪽 읽음 커서를 올릴지 가를 때 쓴다. */
     public boolean isBuyer(Long userId) {
         return buyerId.equals(userId);
     }

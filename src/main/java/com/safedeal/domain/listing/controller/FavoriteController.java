@@ -19,12 +19,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 찜.
- *
- * <p>찜은 매물과 별개의 기능 단위라 컨트롤러를 따로 둔다. 등록·해제만 보면
- * {@code ListingController}의 {@code /api/listings} 아래에도 들어가지만, 목록이
- * {@code /api/users/me/favorites}라 매핑 루트가 갈린다. 셋을 한 곳에 모으는 편이 읽기 쉽다.
- * 세 API 모두 인증 필수다.
+ * 찜 등록·해제·목록. 목록 경로가 {@code /api/users/me/favorites}라 매핑 루트가 달라서
+ * 별도 컨트롤러로 뺐다. 세 API 모두 인증이 필요하다.
  */
 @RestController
 @RequiredArgsConstructor
@@ -33,7 +29,7 @@ public class FavoriteController {
     private final FavoriteCommandService favoriteCommandService;
     private final FavoriteQueryService favoriteQueryService;
 
-    /** 찜 등록. 이미 찜한 상태여도 201로 같은 응답을 준다(멱등). */
+    /** 찜 등록. 이미 찜한 상태여도 201로 같은 응답을 준다 — 두 번 눌러도 결과는 같다. */
     @PostMapping("/api/listings/{publicId}/favorite")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<FavoriteToggleResponse> add(
@@ -42,7 +38,7 @@ public class FavoriteController {
         return ApiResponse.success(favoriteCommandService.add(user.userId(), publicId));
     }
 
-    /** 찜 해제. 찜하지 않은 상태여도 200으로 같은 응답을 준다(멱등). */
+    /** 찜 해제. 찜하지 않은 상태여도 200으로 같은 응답을 준다 — 두 번 눌러도 결과는 같다. */
     @DeleteMapping("/api/listings/{publicId}/favorite")
     public ApiResponse<FavoriteToggleResponse> remove(
             @AuthenticationPrincipal AuthenticatedUser user,

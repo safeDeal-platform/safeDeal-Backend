@@ -6,10 +6,8 @@ import com.safedeal.domain.listing.entity.ListingStatus;
 import java.time.Instant;
 
 /**
- * 목록 한 줄.
- *
- * <p>{@code thumbnailUrl}과 {@code verificationBadge}는 아직 넣지 않는다 — 이미지 업로드와 검증
- * 도메인이 붙은 뒤에 채운다. 지금 null로 내려보내면 프론트가 "값이 없는 상태"를 계약으로 오해한다.
+ * 목록 한 줄. {@code thumbnailUrl} · {@code verificationBadge}는 아직 없다 — 이미지 업로드·검증
+ * 도메인이 붙기 전에 null로 내려보내면 프론트가 값이 없는 상태를 계약으로 오해한다.
  */
 public record ListingSummaryResponse(
         String publicId,

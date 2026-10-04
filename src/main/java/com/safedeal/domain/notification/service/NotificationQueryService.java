@@ -13,13 +13,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * 알림 조회(Query) 서비스. 정책상 CQRS를 서비스 계층에서 나눈다 — 조회 전용이라
- * 상태를 바꾸지 않는다(읽기 트랜잭션).
- *
- * MVP 전달 채널은 IN_APP뿐이라 목록은 IN_APP 채널만 조회한다(이메일·SSE 레코드가 생기더라도
- * 앱 내 목록에는 섞이지 않는다).
- */
+/** 알림 조회(Query) 서비스 — 상태를 바꾸지 않는다. 목록은 IN_APP 채널만 본다(MVP 전달 채널이 그것뿐). */
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -40,8 +34,7 @@ public class NotificationQueryService {
             return NotificationListResponse.of(notifications);
         }
 
-        // catch-up은 오래된 미수신분부터(id ASC) 소진해야 커서가 구멍 없이 전진한다
-        // (리포지토리 참고). 응답 표시 순서는 최신순 계약이므로 여기서 뒤집는다.
+        // catch-up은 오래된 것부터(id ASC) 소진해야 커서에 구멍이 안 생긴다. 표시는 최신순이라 여기서 뒤집는다.
         List<Notification> oldestUnseenFirst = notificationRepository
                 .findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdAsc(
                         userId, NotificationChannel.IN_APP, sinceId);
@@ -51,8 +44,7 @@ public class NotificationQueryService {
     }
 
     /**
-     * 안 읽은 IN_APP 알림 개수(배지). 전체 개수를 센다 — 화면(최대 10건)에 안 보이는
-     * 오래된 안읽음도 포함한다.
+     * 안 읽은 IN_APP 알림 개수(배지) — 화면에 안 보이는 오래된 안읽음도 전부 센다.
      *
      * @param userId 현재 사용자 내부 PK
      */
