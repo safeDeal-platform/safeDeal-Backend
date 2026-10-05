@@ -10,9 +10,8 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-// 서명 키는 코드에 기본값을 두지 않는다. 기본값이 있으면 배포에서 JWT_SECRET을 빠뜨렸을 때
-// 개발용 키로 조용히 기동해 누구나 토큰을 위조할 수 있는 상태가 된다.
-// (운영 프로파일에서는 RequiredPropertyGuard가 주입 여부를 한 번 더 확인한다.)
+// 서명 키는 기본값을 두지 않는다 — 기본값이 있으면 JWT_SECRET을 빠뜨려도 조용히 기동해
+// 누구나 토큰을 위조할 수 있게 된다(운영에서는 RequiredPropertyGuard가 한 번 더 확인).
 @Component
 @Validated
 @Getter

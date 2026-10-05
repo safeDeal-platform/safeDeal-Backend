@@ -14,15 +14,10 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * 이메일 인증 토큰 (정책 AUTH-6) — TTL 24시간, 1회용.
- *
- * 원문이 아니라 해시를 저장한다. DB를 읽을 수 있는 사람이 남의 인증 링크를 그대로 쓸 수 있으면
- * 안 되기 때문이다 — 값을 아는 쪽(메일을 받은 본인)만 대조를 통과한다.
- *
- * {@link MutableEntity}를 상속하는 이유: used_at이 나중에 채워지는 UPDATE가 실제로 존재한다.
- * 감사 필드 규칙이 "테이블 이름이 아니라 실제 UPDATE 존재 여부로 판정"하라고 하므로 여기서는
- * updated_at을 갖는 쪽이 맞다.
- * (ERD에는 이 테이블에 updated_at이 없다 — ERD 쪽을 맞춰야 한다.)
+ * 이메일 인증 토큰 (정책 AUTH-6) — TTL 24시간, 1회용. 원문이 아니라 해시로 저장한다 —
+ * DB를 볼 수 있는 사람이 남의 인증 링크를 그대로 쓰면 안 되기 때문이다. {@link MutableEntity}를
+ * 상속하는 이유는 used_at이 나중에 채워지는 UPDATE가 실제로 있어서다(ERD에는 이 테이블의
+ * updated_at이 빠져 있다 — ERD를 맞춰야 한다).
  */
 @Entity
 @Table(name = "email_verification_tokens")

@@ -9,18 +9,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 /**
- * 커서를 JSON으로 직렬화한 뒤 URL-safe Base64로 감싸는 구현.
+ * 커서를 JSON으로 직렬화해 URL-safe Base64로 감싼다(API 명세서 계약: {@code "eyJjIjoi..."} 형식).
  *
- * <p>{@link CursorCodec} 주석이 남겨둔 세 후보(암호화 opaque 토큰 / Redis 발급 이력 / 값 인코딩)
- * 중 마지막이다. API 명세서의 응답 예시가 {@code "nextCursor": "eyJjIjoi..."} — Base64로 감싼
- * JSON이라 그 계약을 따른다.
- *
- * <p><b>커서는 비밀이 아니다.</b> 디코딩하면 마지막 항목의 생성 시각과 id가 보인다. 그 두 값은
- * 목록 응답에 이미 들어 있는 정보라 새로 새는 것이 없다. 대신 <b>커서를 신뢰하지는 않는다</b> —
- * 클라이언트가 값을 고쳐 보낼 수 있으므로, 조회는 언제나 공개 조건(ACTIVE·미삭제)을 다시 걸고
- * 커서는 "어디서부터"만 정한다.
- *
- * <p>버전과 정렬 기준을 함께 실어, 포맷이 바뀌거나 정렬을 바꾼 채 옛 커서를 재사용하면 거부한다.
+ * 커서는 비밀은 아니지만 신뢰하지도 않는다 — 클라이언트가 값을 고쳐 보낼 수 있어서, 조회는
+ * 항상 공개 조건(ACTIVE·미삭제)을 다시 걸고 커서는 "어디서부터"만 정한다.
  */
 @Component
 public class Base64CursorCodec implements CursorCodec {

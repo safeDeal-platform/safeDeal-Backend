@@ -19,19 +19,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * JWT 발급·검증. 도메인 지식이 없는 순수 인프라라 global/security에 둔다.
+ * JWT 발급·검증. domain/auth가 아니라 global에 두는 이유는, 발급·검증이 도메인 지식 없는
+ * 기계적 작업이기 때문이다 — 반대로 두면 global→domain 역방향 의존이 생긴다.
  *
- * 여기에 두는 이유: 인증 필터는 SecurityConfig와 함께 global에 있어야 하는데, 그 필터가
- * domain/auth를 참조하면 global 에서 domain 으로 향하는 역방향 의존이 생긴다. 발급·검증은
- * "누가 로그인했나"를 모르는 기계적인 작업이므로 global이 맞고, domain/auth는 이걸 쓰는 쪽이다.
+ * access·refresh 모두 JWT로 발급하되 typ 클레임으로 구분한다 — 구분이 없으면 refresh를
+ * Authorization 헤더에 넣어 3일짜리 access처럼 쓸 수 있다.
  *
- * access와 refresh를 모두 JWT로 발급하되 typ 클레임으로 구분한다 — 구분이 없으면
- * refresh 토큰을 Authorization 헤더에 그대로 넣어 3일짜리 access처럼 쓸 수 있다.
- *
- * refresh를 불투명한 랜덤 문자열이 아니라 JWT로 하는 이유: 쿠키만 받았을 때 userId를 알아야
- * 화이트리스트 키(auth:refresh:v1 뒤에 userId)를 찾을 수 있다. 불투명 문자열이면 그 키를 못 찾아
- * 정책이 요구하는 "재사용 감지 시 해당 유저 refresh 전부 무효화"가 불가능해진다.
- * 서명이 통과해도 화이트리스트에 없으면 거부하므로 판정 권한은 여전히 화이트리스트에 있다.
+ * refresh를 불투명 문자열이 아니라 JWT로 하는 이유: userId를 알아야 화이트리스트 키를
+ * 찾을 수 있고, 그래야 재사용 감지 시 해당 유저 refresh를 전부 무효화할 수 있다.
  */
 @Slf4j
 @Component
@@ -102,10 +97,7 @@ public class JwtTokenProvider {
 
     /**
      * access 토큰을 해석한다. 서명·만료·타입 중 하나라도 어긋나면 빈 값을 준다.
-     *
-     * 예외를 던지지 않고 Optional을 주는 이유: 호출자(인증 필터)가 할 일이 "인증하지 않고 통과"
-     * 하나뿐이라, 예외로 만들면 필터마다 try-catch가 반복된다. 인증되지 않은 요청의 최종 거절은
-     * SecurityConfig의 authorizeHttpRequests와 ApiAuthenticationEntryPoint가 담당한다.
+     * 예외 대신 Optional인 이유: 호출자가 할 일은 "인증 않고 통과"뿐이라 try-catch가 필요 없다.
      */
     public Optional<AccessClaims> resolveAccess(String token) {
         return parse(token, TYPE_ACCESS)
@@ -144,10 +136,8 @@ public class JwtTokenProvider {
     }
 
     /**
-     * 화이트리스트·1회용 토큰 테이블에 저장할 해시(SHA-256 hex).
-     *
-     * 원문을 저장하지 않는 이유: Redis 덤프나 DB 조회만으로 남의 refresh·재설정 링크를 그대로
-     * 쓸 수 있게 된다. 해시만 두면 값을 알고 있는 쪽(쿠키나 메일의 주인)만 대조를 통과한다.
+     * 화이트리스트·1회용 토큰 테이블에 저장할 해시(SHA-256 hex) — 원문을 저장하면 Redis 덤프나
+     * DB 조회만으로 남의 refresh·재설정 링크를 그대로 쓸 수 있게 된다.
      */
     public static String hash(String token) {
         try {

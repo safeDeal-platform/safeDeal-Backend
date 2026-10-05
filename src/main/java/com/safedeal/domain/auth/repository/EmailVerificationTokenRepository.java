@@ -15,14 +15,10 @@ public interface EmailVerificationTokenRepository extends JpaRepository<EmailVer
     Optional<EmailVerificationToken> findByTokenHash(String tokenHash);
 
     /**
-     * 1회용 보장 — 조건부 UPDATE로 소진한다(공통 원칙 '상태 전이는 조건부 UPDATE').
+     * 1회용 보장 — 조건부 UPDATE로 소진한다(WHERE used_at IS NULL). 같은 링크를 동시에 두 번
+     * 눌러도 DB가 한쪽만 성공시켜, 영향받은 행이 1일 때만 그 요청이 이긴 것이다.
      *
-     * 조회해서 usedAt이 null인지 보고 setter로 채우면, 같은 링크를 동시에 두 번 눌렀을 때
-     * 두 요청이 모두 "아직 안 썼다"를 읽고 둘 다 통과한다. 서버가 두 대면 더 쉽게 겹친다.
-     * WHERE used_at IS NULL을 걸면 DB가 한 쪽만 성공시키므로, 영향 행이 1일 때만 이긴 것이다.
-     *
-     * updated_at을 직접 채우는 이유: JPQL 벌크 UPDATE는 영속성 컨텍스트를 거치지 않아
-     * {@code @LastModifiedDate} 감사 필드가 갱신되지 않는다.
+     * updated_at을 직접 채우는 이유: 벌크 UPDATE는 영속성 컨텍스트를 거치지 않아 자동 갱신 필드가 안 바뀐다.
      */
     @Modifying(flushAutomatically = true)
     @Query("update EmailVerificationToken t set t.usedAt = :now, t.updatedAt = :now"
