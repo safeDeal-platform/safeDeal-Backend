@@ -49,4 +49,25 @@ class ReportErrorCodeTest {
         assertThat(ReportErrorCode.SELF_REPORT_NOT_ALLOWED.getCode()).isEqualTo("RPT006");
         assertThat(ReportErrorCode.SELF_REPORT_NOT_ALLOWED.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
+
+    @Test
+    @DisplayName("종결된 신고를 같은 사유로 다시 내면 RPT002 · 409로 거절한다")
+    void closedReportIsConflict() {
+        assertThat(ReportErrorCode.REPORT_ALREADY_CLOSED.getCode()).isEqualTo("RPT002");
+        assertThat(ReportErrorCode.REPORT_ALREADY_CLOSED.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    @Test
+    @DisplayName("증거 메시지 오류는 RPT005 · 400이다")
+    void invalidEvidenceIsBadRequest() {
+        assertThat(ReportErrorCode.INVALID_EVIDENCE_MESSAGE.getCode()).isEqualTo("RPT005");
+        assertThat(ReportErrorCode.INVALID_EVIDENCE_MESSAGE.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    @DisplayName("제재가 끝난 대상에 대한 신고는 RPT007 · 409로 거절한다")
+    void alreadySanctionedIsConflict() {
+        assertThat(ReportErrorCode.TARGET_ALREADY_SANCTIONED.getCode()).isEqualTo("RPT007");
+        assertThat(ReportErrorCode.TARGET_ALREADY_SANCTIONED.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+    }
 }
