@@ -12,7 +12,8 @@ import java.util.Set;
  * <p>{@code EnumType.STRING}으로 저장한다.
  *
  * <p>전이표는 확정 전 기본값이다: 접수 상태에서 바로 처리·기각으로 가는 것을 허용하고, 검토 중에는
- * 신고자가 취소할 수 없다. 이 두 칸은 정책 확정 때 다시 확인한다. 취소 API는 아직 없어서 CANCELLED 행은 만들어지지 않는다.
+ * 신고자가 취소할 수 없다. 이 두 칸은 정책 확정 때 다시 확인한다. 검토 중 취소 금지는
+ * {@code ReportCommandService.cancel}이 조건부 UPDATE로 강제한다(사용자 확정 2026-10-05: REVIEWING 이후는 409).
  */
 public enum ReportStatus {
 
