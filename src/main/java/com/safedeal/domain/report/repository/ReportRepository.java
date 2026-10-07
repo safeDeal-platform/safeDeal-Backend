@@ -18,6 +18,13 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
             Long reporterId, ReportTargetType targetType, Long targetId, ReportReason reasonCode);
 
     /**
+     * 공개 id로 신고를 찾되, 신고자 조건을 쿼리 자체에 박아둔다. 신고자 본인이 아니면
+     * "권한 없음"이 아니라 "없음"으로 응답한다 — {@code ChatRoomRepository.findByPublicIdAndParticipant}와
+     * 같은 원칙(존재 여부 자체를 알려주지 않는다). 취소 API가 내부 id를 얻으려고 먼저 부른다.
+     */
+    Optional<Report> findByPublicIdAndReporterId(String publicId, Long reporterId);
+
+    /**
      * 신고자 본인의 취소: 접수 상태(RECEIVED)일 때만 취소(CANCELLED)로 바꾼다.
      *
      * <p>영향 행이 0이면 둘 중 하나다. 본인 신고가 아니거나(없는 것과 같게 404로 응답한다),
