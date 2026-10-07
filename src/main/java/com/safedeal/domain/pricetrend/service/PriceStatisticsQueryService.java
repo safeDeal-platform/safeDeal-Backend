@@ -13,12 +13,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Optional;
 
 /**
- * 시세 조회(Query) 서비스. 중분류 × 기간의 최신 집계를 읽어 응답으로 변환한다.
- *
- * 표본 수가 신뢰 기준({@link #MIN_RELIABLE_SAMPLE_COUNT}) 미만이거나 집계 자체가 없으면
- * "시세 정보 부족"으로 응답한다 — 소수 표본으로 계산한 값을 시세로 오인하지 않도록.
- *
- * (Redis 5분 write-back 병행 캐시는 후속 — 정규 집계 경로가 붙을 때 함께 도입한다.)
+ * 시세 조회(Query) 서비스. 표본 수가 {@link #MIN_RELIABLE_SAMPLE_COUNT} 미만이거나 집계가
+ * 없으면 "시세 정보 부족"으로 응답한다 — 소수 표본을 시세로 오인하지 않도록.
  */
 @Service
 @RequiredArgsConstructor
@@ -26,8 +22,8 @@ import java.util.Optional;
 public class PriceStatisticsQueryService {
 
     /**
-     * 시세로 노출할 최소 표본 수(미만이면 "부족" 처리). 정책상 정확한 임계값이 아직 확정되지
-     * 않아 잠정값으로 둔다 — 확정 시 이 상수만 조정한다. (명세서 예시가 표본 1건을 부족으로 봄)
+     * 시세로 노출할 최소 표본 수. 정책상 정확한 임계값이 아직 확정되지 않은 잠정값이다
+     * (명세서 예시는 표본 1건을 부족으로 봄).
      */
     static final int MIN_RELIABLE_SAMPLE_COUNT = 5;
 

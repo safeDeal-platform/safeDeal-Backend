@@ -6,12 +6,11 @@ package com.safedeal.global.util;
  * 로직 자체는 특정 도메인의 제약이 아니라 MySQL 예외 모양에 대한 것이라 도메인에 묶일 이유가
  * 없다.
  *
- * <p><b>왜 Hibernate의 {@code getConstraintName()}을 안 쓰나:</b> MySQL 드라이버의 메시지는
- * {@code Duplicate entry '<위반한 값>' for key '<테이블.제약>'} 형태다. 앞쪽 {@code <위반한 값>}에는
- * 사용자가 넣은 문자열(예: clientMessageId)이 그대로 실린다. Hibernate의 MySQL 추출기는
- * {@code " for key '"}의 <b>첫</b> 출현을 잘라 이름으로 쓰므로(Hibernate 7.2.12 소스로 확인),
- * clientMessageId에 그 구분자를 심으면 엉뚱한 이름이 나온다. 서버가 붙이는 <b>꼬리</b>는 사용자
- * 값이 바꿀 수 없으므로 <b>마지막</b> 출현을 읽는다.
+ * <p>Hibernate의 {@code getConstraintName()}을 쓰지 않는다 — MySQL 오류 메시지
+ * ("Duplicate entry '사용자 값' for key '제약이름'")에서 그 함수는 <b>첫 번째</b> 구분자를
+ * 잘라 쓰는데, 사용자가 넣은 값(clientMessageId 등)에 같은 구분자 문자열을 심으면 엉뚱한
+ * 제약 이름이 나온다. 그래서 서버가 맨 뒤에 붙이는 진짜 제약 이름을 읽으려고 <b>마지막</b>
+ * 구분자를 찾는다.
  *
  * <p>가장 깊은 원인(드라이버 예외)의 메시지만 본다 — 위쪽 래퍼 예외 메시지에는 SQL 문 등이 더
  * 실려 있다. 원인 사슬은 깊이를 제한해 순환이 있어도 끝난다.

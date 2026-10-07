@@ -7,46 +7,22 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * 알림 조회 리포지토리.
- *
- * 목록/폴링 쿼리는 조건이 고정된 정적 쿼리라 QueryDSL 없이 파생 쿼리로 충분하다
- * (데이터 접근 전략: 동적=QueryDSL, 정적=JPA). 첫 진입은 id DESC + Top10으로 "표시 최대
- * 10개"를, 증분(catch-up)은 id ASC + Top10으로 sinceId 이후 구간을 순서대로 소진한다.
- */
+/** 알림 조회 리포지토리. 조건이 고정된 정적 쿼리라 QueryDSL 없이 파생 쿼리로 충분하다. */
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
-    /**
-     * 최신 알림 최대 10개 (첫 진입 — sinceId 없음).
-     * id DESC 정렬이라 결과의 첫 항목이 가장 최신(= latestId)이다.
-     */
+    /** 최신 알림 최대 10개(첫 진입). id DESC라 첫 항목이 가장 최신(latestId)이다. */
     List<Notification> findTop10ByUserIdAndChannelOrderByIdDesc(Long userId, NotificationChannel channel);
 
     /**
-     * sinceId 초과분 중 가장 오래된 것부터 최대 10개 (폴링 catch-up).
-     *
-     * <p>id ASC로 가져와야 한다 — DESC로 최신 10개를 집으면, 밀린 알림이 10개를 넘을 때
-     * 중간 구간이 다음 sinceId(=이번 응답 최대 id)보다 작아 영영 재조회되지 않는다(gap).
-     * 오래된 것부터 순서대로 소진해야 커서가 구멍 없이 전진한다. 표시 순서(최신순)는
-     * 서비스 계층에서 뒤집는다.
+     * sinceId 초과분을 오래된 것부터 최대 10개(폴링 catch-up). id ASC로 가져와야 밀린
+     * 알림이 10개를 넘어도 커서에 구멍이 안 생긴다. 표시 순서(최신순)는 서비스 계층에서 뒤집는다.
      */
     List<Notification> findTop10ByUserIdAndChannelAndIdGreaterThanOrderByIdAsc(
             Long userId, NotificationChannel channel, Long sinceId);
 
-    /**
-     * 읽음 처리 대상 조회.
-     *
-     * <p><b>id만이 아니라 userId까지 조건에 넣는다.</b> id만으로 찾아 온 뒤 소유자를 비교하면
-     * 검사를 빠뜨리는 순간 남의 알림을 읽음 처리할 수 있다(IDOR). 조건을 쿼리에 박아두면
-     * 남의 알림은 애초에 조회되지 않고, 호출부는 "없으면 404" 하나만 처리하면 된다 —
-     * 존재 여부 자체도 알려주지 않는다.
-     */
+    /** 읽음 처리 대상 조회. id만이 아니라 userId까지 조건에 넣어 남의 알림은 애초에 안 보이게 한다. */
     Optional<Notification> findByIdAndUserId(Long id, Long userId);
 
-    /**
-     * 안 읽은 IN_APP 알림 개수(배지용). 목록과 동일하게 채널을 IN_APP으로 고정한다 —
-     * 안 고르면 읽음 처리 UI가 없는 EMAIL 알림이 read_at=null로 영구 누적돼 배지에 섞인다.
-     * Top10 상한이 걸린 목록 조회로는 셀 수 없어(최대 10건만 온다) 별도 COUNT가 필요하다.
-     */
+    /** 안 읽은 IN_APP 알림 개수(배지). 목록은 최대 10건만 와서 이 COUNT가 따로 필요하다. */
     long countByUserIdAndChannelAndReadAtIsNull(Long userId, NotificationChannel channel);
 }

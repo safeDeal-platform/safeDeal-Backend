@@ -41,12 +41,11 @@ public class SecurityConfig {
 
     // 인증 없이 여는 경로. 도메인이 늘어나도 여기 한 곳만 보면 전체 화이트리스트를 알 수 있다.
 
-    // 토큰이 아직 없거나(가입·로그인) 이미 만료된 상태에서도 호출돼야 하는 인증 API.
-    // logout이 여기 있는 이유: access가 만료된 뒤에도 로그아웃은 돼야 한다(쿠키 삭제가 목적).
-    // email/verify가 공개인 이유: 메일 링크를 누르는 브라우저가 로그인 상태라는 보장이 없다.
-    // 반대로 재발송(email/verify/resend)은 공개하지 않는다 - 열거 통로이자 메일 발송기가 된다.
-    // 주의: 재발송은 공개 경로 email/verify의 하위 경로다. 지금은 정확 매칭이라 안 걸리지만,
-    // 누가 여기를 "/api/auth/email/verify/**" 로 넓히면 재발송이 조용히 공개된다 - 넓히지 말 것.
+    // 토큰이 없거나(가입·로그인) 이미 만료된 상태에서도 호출돼야 하는 인증 API. logout은 access가
+    // 만료된 뒤에도 쿠키를 지워야 해서, email/verify는 메일 링크를 누른 브라우저가 로그인
+    // 상태라는 보장이 없어서 공개한다. 재발송(email/verify/resend)은 공개하지 않는다 — 열거·
+    // 메일 폭탄 통로이기 때문. 이 prefix를 "/api/auth/email/verify/**"로 넓히면 재발송까지
+    // 조용히 공개되니 넓히지 말 것.
     private static final String[] AUTH_PUBLIC_POST_ENDPOINTS = {
             "/api/auth/signup",
             "/api/auth/login",
@@ -57,14 +56,11 @@ public class SecurityConfig {
             "/api/auth/password/reset",
     };
 
-    // 매물 목록 공개 조회. 쓰기 메서드(POST/PATCH/DELETE)는 이 매처에 포함하지 않는다.
-    // 하위 경로를 /** 로 열지 않는 이유: 나중에 /mine, /drafts, /{id}/buyers 처럼 비공개여야
-    // 할 조회가 같은 prefix 아래 추가되면 검토 없이 자동 공개되기 때문이다. 상세 조회 등
-    // 공개가 필요한 경로는 컨트롤러를 추가할 때 정확한 패턴으로 여기에 함께 등록한다.
+    // 매물 목록·상세 공개 조회만 연다(쓰기 메서드는 포함 안 함). 하위 경로를 "/**"로 열지
+    // 않는 이유: 나중에 /mine, /{id}/buyers처럼 비공개여야 할 조회가 같은 prefix 아래 추가되면
+    // 검토 없이 자동 공개되기 때문이다. 새로 공개할 경로는 정확한 패턴으로 여기에 추가한다.
     private static final String[] LISTINGS_PUBLIC_GET_ENDPOINTS = {
             "/api/listings",
-            // 상세는 public_id 한 칸만 연다. /** 로 열면 나중에 /mine, /{id}/buyers 같은
-            // 비공개 조회가 같은 prefix 아래 추가될 때 검토 없이 자동 공개된다.
             "/api/listings/{publicId}",
     };
 
@@ -120,16 +116,14 @@ public class SecurityConfig {
                     auth.requestMatchers(HttpMethod.GET, PRICE_STATISTICS_PUBLIC_GET_ENDPOINTS).permitAll();
                     auth.requestMatchers(HttpMethod.GET, CATEGORY_PUBLIC_GET_ENDPOINTS).permitAll();
 
-                    // WebSocket(/ws/**) 화이트리스트는 의도적으로 넣지 않았다. 아직 endpoint도
-                    // STOMP CONNECT 인증도 없는 상태에서 경로를 미리 열어두면, 나중에 그 아래
-                    // 기능이 추가되는 순간 자동으로 공개된다. 채팅 구현 시 핸드셰이크 GET 경로만
-                    // 정확히 열고, CONNECT 프레임 JWT 검증·destination 인가·origin 제한을
-                    // 같은 변경에서 함께 추가한다.
+                    // WebSocket(/ws/**)은 아직 endpoint도 STOMP 인증도 없어 의도적으로 화이트리스트에
+                    // 넣지 않았다 — 미리 열어두면 나중에 기능이 추가되는 순간 자동 공개된다. 채팅
+                    // 구현 시 핸드셰이크 GET만 정확히 열고 CONNECT JWT 검증·destination 인가·
+                    // origin 제한을 같은 변경에서 함께 추가한다.
 
-                    // springdoc 자체가 설정으로 꺼져 있지 않은 한(local) 화이트리스트에 추가한다.
-                    // 별도 @Profile SecurityFilterChain 빈으로 쪼개는 대신 Environment로
-                    // 조건부 화이트리스트를 적용한 이유: 규칙 하나 때문에 STATELESS/CORS/예외
-                    // 처리 같은 나머지 보안 설정 전체를 프로파일별로 중복 정의하고 싶지 않았음.
+                    // springdoc이 꺼져 있지 않은 local에서만 화이트리스트에 추가한다. 프로파일별
+                    // SecurityFilterChain 빈을 따로 만들지 않는 이유: 그러면 STATELESS/CORS/예외
+                    // 처리 같은 나머지 보안 설정 전체를 프로파일별로 중복 정의해야 하기 때문이다.
                     if (environment.matchesProfiles("local")) {
                         auth.requestMatchers(SPRINGDOC_ENDPOINTS).permitAll();
                     }
@@ -137,10 +131,9 @@ public class SecurityConfig {
                     auth.anyRequest().authenticated();
                 });
 
-        // JWT 인증 필터를 dev 필터보다 <b>먼저</b> 등록한다. 같은 앵커에 addFilterBefore를 여러 번
-        // 부르면 등록한 순서대로 실행되므로, 순서가 바뀌면 X-Dev-User-Id 헤더가 실제 토큰보다
-        // 앞서 principal을 채워버린다. dev 필터는 이미 인증된 요청을 건너뛰므로 이 순서에서
-        // 진짜 토큰이 항상 이긴다.
+        // JWT 필터를 dev 필터보다 먼저 등록한다 — 순서가 바뀌면 X-Dev-User-Id 헤더가 실제
+        // 토큰보다 먼저 principal을 채워버린다. dev 필터는 이미 인증된 요청을 건너뛰므로
+        // 이 순서면 진짜 토큰이 항상 이긴다.
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         // 로컬 전용 임시 인증 필터. local + app.security.dev-auth-enabled=true 일 때만 빈이
@@ -154,10 +147,8 @@ public class SecurityConfig {
     }
 
     /**
-     * 비밀번호 해시 알고리즘 (정책 NFR-4 BCrypt).
-     *
-     * 강도를 명시하지 않고 기본값(10)을 쓴다 — 올리면 로그인 응답이 그만큼 느려지므로 실제
-     * 하드웨어에서 측정한 뒤 조정할 값이지, 지금 감으로 정할 값이 아니다.
+     * 비밀번호 해시 알고리즘(정책 NFR-4 BCrypt). 강도는 기본값(10)을 쓴다 — 올리면 로그인이
+     * 그만큼 느려지므로 실제 하드웨어에서 측정 후 조정할 값이다.
      */
     @Bean
     public PasswordEncoder passwordEncoder() {

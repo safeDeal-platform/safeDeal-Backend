@@ -17,17 +17,12 @@ import java.util.List;
 /**
  * Authorization: Bearer 헤더의 access 토큰을 principal로 바꿔 SecurityContext에 넣는다.
  *
- * 검증 순서는 (1) 서명 (2) 만료 (3) 블랙리스트다. (1)(2)는 서버 메모리의 비밀키로 하는 로컬
- * 연산이라 Redis와 무관하게 항상 수행되고, Redis가 필요한 것은 (3)뿐이다 — 그래서 Redis 장애 시
- * 건너뛰는 것도 (3) 하나뿐이다({@link TokenBlacklist} 주석 참고).
+ * 서명·만료는 로컬 연산이라 항상 검사하고, 블랙리스트만 Redis를 타므로 Redis 장애 시
+ * 건너뛰는 것도 그것뿐이다({@link TokenBlacklist} 참고).
  *
- * 토큰이 없거나 유효하지 않으면 인증하지 않고 그냥 통과시킨다. 여기서 401을 직접 쓰지 않는
- * 이유: 이 필터는 공개 경로(회원가입·로그인·매물 목록)에도 걸리므로, 토큰이 없다는 것만으로
- * 거절하면 공개 API가 전부 막힌다. 접근 거절은 SecurityConfig의 authorizeHttpRequests와
- * ApiAuthenticationEntryPoint가 담당한다.
- *
- * principal은 반드시 {@link AuthenticatedUser}로 넣는다 — 컨트롤러가
- * {@code @AuthenticationPrincipal AuthenticatedUser}로 꺼내는 계약(해당 클래스 주석 참고).
+ * 토큰이 없거나 유효하지 않아도 401을 직접 쓰지 않고 통과시킨다 — 이 필터는 공개 경로
+ * (회원가입·로그인 등)에도 걸려서, 여기서 거절하면 공개 API가 막힌다. 최종 거절은
+ * SecurityConfig와 {@link ApiAuthenticationEntryPoint}가 담당한다.
  */
 @Component
 @RequiredArgsConstructor

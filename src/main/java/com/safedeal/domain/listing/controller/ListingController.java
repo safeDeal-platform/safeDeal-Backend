@@ -66,12 +66,9 @@ public class ListingController {
     }
 
     /**
-     * 매물 상세 — 비로그인 허용. 경로 변수는 내부 id가 아니라 public_id다.
-     *
-     * <p>조회수는 상세를 찾은 뒤에 올린다. 먼저 올리면 없는 매물·비공개 매물을 찔러보는
-     * 요청으로도 숫자가 오른다. 응답의 조회수는 이번 조회가 반영되기 직전 값이다.
-     *
-     * <p>{@code user}는 비로그인이면 null이다 — 이 경로는 화이트리스트라 인증이 없어도 통과한다.
+     * 매물 상세 — 비로그인 허용이라 {@code user}는 null일 수 있다. 조회수는 상세를 먼저 찾은
+     * 뒤에 올려서, 없는 매물이나 비공개 매물을 찔러보는 요청으로는 숫자가 오르지 않게 한다.
+     * 응답의 조회수는 이번 조회가 반영되기 직전 값이다.
      */
     @GetMapping("/{publicId}")
     public ApiResponse<ListingDetailResponse> getListing(
@@ -83,12 +80,8 @@ public class ListingController {
     }
 
     /**
-     * 조회수 증가는 실패해도 상세 조회를 죽이지 않는다.
-     *
-     * <p>조회수는 정책상 표시용이고 중복 제거도 하지 않는 값이다. 반면 이 경로는 비로그인으로
-     * 열려 있는 공개 읽기다 — 이미 성공한 조회가 부수 효과 때문에 500이 되면 안 된다.
-     * 같은 행을 잠그는 UPDATE라 인기 매물에서는 락 대기가 길어질 수 있고, 그 타임아웃도
-     * 여기로 들어온다. 유실은 감수하고 로그만 남긴다.
+     * 조회수 증가가 실패해도 상세 조회 자체는 성공으로 끝낸다. 같은 매물 행을 잠그는 UPDATE라
+     * 인기 매물에서는 대기가 길어질 수 있는데, 그 실패까지 포함해서 로그만 남기고 무시한다.
      */
     private void increaseViewCountQuietly(String publicId, AuthenticatedUser user) {
         try {
@@ -104,7 +97,7 @@ public class ListingController {
     /** 관리자 조회는 조회수에 세지 않는다(정책). */
     private static final String ADMIN_ROLE = "ADMIN";
 
-    /** 매물 수정 — 판매자 본인만. 낙관적 락 충돌 시 409를 돌려주므로 재조회 후 재시도한다. */
+    /** 매물 수정 — 판매자 본인만. 다른 사람이 먼저 저장하면 이번 수정은 409로 실패하니 재조회 후 다시 시도한다. */
     @PatchMapping("/{publicId}")
     public ApiResponse<ListingUpdateResponse> update(
             @AuthenticationPrincipal AuthenticatedUser user,

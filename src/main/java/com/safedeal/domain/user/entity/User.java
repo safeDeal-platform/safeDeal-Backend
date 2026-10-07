@@ -18,16 +18,9 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * 사용자 계정.
- *
- * <b>소유·범위 안내</b> — 이 엔티티의 최종 소유는 유저 도메인(중현)이다. 인증 착수 시점에
- * users 없이는 로그인을 한 줄도 만들 수 없어 인증 담당자가 <b>인증·신뢰도에 필요한 최소
- * 필드만</b> 먼저 만들었다. 아직 없는 필드는 유저 도메인 착수 시 추가한다:
- * phone / previous_nickname / nickname_changed_at.
- * (reported_flag는 신뢰도 TRS-3이 쓰는 값이라 인증 착수 시점에 함께 넣었다.)
- * (MVP 동안 스키마 진실은 엔티티이고 로컬은 ddl-auto=create-drop이라 필드 추가 비용은 없다.)
- *
- * 자세한 배경은 docs/V1-decisions.md 1장 참고.
+ * 사용자 계정. 최종 소유는 유저 도메인(중현)이지만, 인증 착수 시점에 인증·신뢰도에 필요한
+ * 최소 필드만 먼저 만들었다. phone / previous_nickname / nickname_changed_at은 유저 도메인
+ * 착수 시 추가한다 (배경: docs/V1-decisions.md 1장).
  */
 @Entity
 @Table(name = "users")
@@ -76,14 +69,10 @@ public class User extends MutableEntity {
     private int trustScore;
 
     /**
-     * 신뢰도 조건부 하한(floor) 보호가 풀렸는지 (정책 TRS-3).
-     *
-     * false면 점수가 300(표시 30.0) 밑으로 떨어지지 않고, true면 0까지 하락할 수 있다.
-     * 신고 확정(제재) 이벤트를 받으면 true가 되고, 이후 정상 거래로 300을 재돌파하면
-     * 다시 false로 돌아온다 — 즉 "이력이 있느냐"가 아니라 "지금 보호가 풀려 있느냐"다.
-     * (ERD 컬럼명 reported_flag는 이력처럼 읽히지만 정책에 복원 규칙이 있어 실제 의미는 현재 상태다.)
-     *
-     * 값을 바꾸는 것은 신뢰도 도메인이고, 여기서는 보관만 한다.
+     * 신뢰도 조건부 하한(floor) 보호가 풀렸는지 (정책 TRS-3). false면 점수가 300 밑으로
+     * 안 내려가고, true면 0까지 내려간다. 제재를 받으면 true가 되고 이후 정상 거래로 300을
+     * 재돌파하면 다시 false로 돌아온다 — 컬럼명은 이력처럼 보이지만 실제 의미는 "지금
+     * 보호가 풀려 있는가"다(값은 신뢰도 도메인이 바꾼다).
      */
     @Column(nullable = false)
     private boolean reportedFlag;
@@ -126,26 +115,19 @@ public class User extends MutableEntity {
     }
 
     /**
-     * 비밀번호 변경·재설정 (AUTH-7).
-     *
-     * 호출하는 쪽이 refresh 전체 무효화를 반드시 함께 처리해야 한다 - 정책상 비밀번호가
-     * 바뀌면 기존 세션이 전부 끊겨야 하는데, 엔티티는 Redis를 모르므로 여기서 할 수 없다.
+     * 비밀번호 변경·재설정 (AUTH-7). 호출하는 쪽이 refresh 전체 무효화를 반드시 함께
+     * 처리해야 한다 — 엔티티는 Redis를 모르므로 세션 무효화를 여기서 할 수 없다.
      */
     public void changePassword(String encodedPassword) {
         this.passwordHash = encodedPassword;
     }
 
-    /** OAuth 전용 계정은 대조할 비밀번호가 없다. */
     /**
-     * 신뢰도 점수를 갈아끼운다 (정책 TRS-1·TRS-3).
+     * 신뢰도 점수를 갈아끼운다 (정책 TRS-1·TRS-3). 증감폭 계산·하한 적용·어뷰징 판정은
+     * 전부 신뢰도 도메인이 하고 엔티티는 결과만 받는다 — 규칙이 바뀔 때마다 남의 도메인
+     * 파일을 고치지 않도록.
      *
-     * 증감폭 계산·하한 적용·어뷰징 판정은 전부 신뢰도 도메인이 하고 엔티티는 결과만 받는다 —
-     * 여기서 계산하면 점수 규칙이 유저 엔티티로 새어 나가고, 규칙이 바뀔 때마다 남의 도메인
-     * 파일을 고쳐야 한다.
-     *
-     * @param floorReleased 조건부 하한 보호가 풀린 상태인지(reported_flag). "이력이 있느냐"가
-     *                      아니라 "지금 보호가 풀려 있느냐"다 — 정책에 복원 규칙이 있어
-     *                      true에서 false로 돌아올 수 있다.
+     * @param floorReleased 조건부 하한 보호가 풀린 상태인지(reported_flag)
      */
     public void applyTrustScore(int newScore, boolean floorReleased) {
         this.trustScore = newScore;

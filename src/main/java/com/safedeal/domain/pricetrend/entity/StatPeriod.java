@@ -3,10 +3,8 @@ package com.safedeal.domain.pricetrend.entity;
 import java.util.Arrays;
 
 /**
- * 시세 통계 집계 기간. 정책상 MVP는 최근 7일 / 30일 두 구간을 지원한다.
- *
- * DB에는 enum 이름(D7/D30)으로 저장하고(EnumType.STRING), API 계약의 표현은
- * {@link #getCode()}("7d"/"30d")로 오간다 — 명세서 쿼리 파라미터/응답이 이 코드를 쓴다.
+ * 시세 통계 집계 기간(7일/30일). DB에는 enum 이름(D7/D30)으로 저장하고, API는
+ * {@link #getCode()}("7d"/"30d")로 주고받는다.
  */
 public enum StatPeriod {
 

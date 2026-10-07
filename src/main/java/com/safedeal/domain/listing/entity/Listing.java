@@ -82,10 +82,8 @@ public class Listing extends MutableEntity {
     private String title;
 
     /**
-     * 길이를 명시한다. {@code @Lob}만 두면 JPA 기본 길이 255가 실려 MySQLDialect가 이를
-     * {@code tinytext}(255<b>바이트</b> = 한글 85자)로 매핑한다 — 두 문단짜리 설명이 저장
-     * 시점에 {@code Data too long}으로 튕긴다. MVP 동안 스키마 진실이 엔티티이므로 이 값이
-     * 그대로 V1__init.sql에 굳는다.
+     * 길이를 명시한다. {@code @Lob}만 두면 기본 길이 255가 {@code tinytext}(255바이트 = 한글
+     * 85자)로 매핑돼 두 문단짜리 설명이 저장 시점에 잘린다.
      */
     @Column(nullable = false, length = MAX_DESCRIPTION_LENGTH)
     private String description;
@@ -137,12 +135,12 @@ public class Listing extends MutableEntity {
     private long imageVersion;
 
     /**
-     * 내용 수정 충돌용. 상태 전이는 이것이 아니라 조건부 UPDATE로 막는다 — 서로 다른 문제다.
+     * 내용 수정 충돌용. 상태 전이는 이것과 별개로 조건부 UPDATE로 막는다.
      *
-     * <p>다만 상태 전이 벌크 UPDATE도 이 값을 함께 올린다. 안 올리면 수정 요청이 읽어 둔 뒤
-     * 판매완료가 커밋돼도 버전 검사를 통과해, 수정이 판매완료를 되돌린다. 조회수 증가만
-     * 예외다(올리면 남이 열어본 것만으로 판매자의 수정이 실패한다) — 그래서 이 엔티티는
-     * {@code @DynamicUpdate}로 바뀐 컬럼만 쓴다. 안 그러면 수정이 옛 조회수를 덮어쓴다.
+     * <p>상태 전이 벌크 UPDATE도 이 값을 함께 올린다 — 안 올리면 먼저 읽어 둔 수정 요청이
+     * 나중에 그대로 커밋되며 판매완료를 되돌린다. 조회수 증가만 올리지 않는다(남이 열어본
+     * 것만으로 판매자의 수정이 실패하면 안 되므로) — 그래서 {@code @DynamicUpdate}로 바뀐
+     * 컬럼만 쓴다.
      */
     @Version
     private Long version;
@@ -172,9 +170,7 @@ public class Listing extends MutableEntity {
     /**
      * 매물을 등록한다.
      *
-     * @param verificationEnabled 검증 구간을 켤지. 꺼져 있으면 DRAFT를 거치지 않고 바로 공개된다
-     *                            — 검증 도메인이 나중에 붙기 때문에, 그때 등록 코드를 다시 쓰지
-     *                            않으려고 상태를 하드코딩하지 않는다.
+     * @param verificationEnabled 검증 구간을 켤지. 꺼져 있으면 DRAFT 없이 바로 ACTIVE로 등록된다.
      */
     public static Listing register(String publicId, Long sellerId, String title, String description,
                                    int price, Category category, ItemCondition itemCondition,
@@ -220,17 +216,13 @@ public class Listing extends MutableEntity {
     }
 
     /**
-     * 내용을 수정한다. 상태·권한 확인은 서비스가 먼저 하고, 여기서는 값 불변식만 지킨다.
+     * 내용을 수정한다. 상태·권한 확인은 서비스가 하고 여기서는 값 불변식만 지킨다.
      *
-     * <p>가격을 내리는 경우에만 하루 한도를 센다. 올리거나 그대로 두는 건 세지 않는다 —
-     * 막으려는 것이 "내렸다 올렸다를 반복해 목록 상단에 계속 뜨는 행위"이기 때문이다.
+     * <p>가격을 내릴 때만 하루 인하 횟수를 센다 — 올렸다 내렸다를 반복해 노출을 끌어올리는
+     * 것만 막으면 되기 때문이다. 지역도 수정 대상이다 — 여기서 빼면 오타를 낸 판매자가
+     * 삭제 후 재등록 외엔 고칠 방법이 없고, 그러면 public_id·조회수·찜이 함께 사라진다.
      *
-     * <p>지역도 수정 대상이다. 등록에서만 받고 여기서 빼면, 시/도·시/군/구를 잘못 넣은
-     * 판매자가 삭제 후 재등록 외에는 고칠 방법이 없다 — 그러면 public_id·조회수·찜이 함께
-     * 사라진다. 지역은 목록 필터의 주요 축이라 오타 하나로 검색에서 통째로 빠진다.
-     *
-     * @param today 오늘 날짜. 서버 시계를 직접 읽지 않고 받는다 — 그래야 날짜 경계 동작을
-     *              테스트로 고정할 수 있다.
+     * @param today 오늘 날짜. 서버 시계 대신 받아야 날짜 경계 동작을 테스트로 고정할 수 있다.
      * @throws PriceDropLimitExceededException 하루 인하 한도를 넘긴 경우
      */
     public void update(String title, String description, int price, Category category,
@@ -273,12 +265,7 @@ public class Listing extends MutableEntity {
     public static class PriceDropLimitExceededException extends RuntimeException {
     }
 
-    /**
-     * 소프트 삭제. 물리 삭제하지 않는 이유는 거래 기록이 고아가 되고 사기 후 증거 인멸이
-     * 가능해지기 때문이다.
-     *
-     * <p>차단된 매물은 지울 수 없다 — 제재 근거가 사라진다.
-     */
+    /** 소프트 삭제. 차단된 매물은 지울 수 없다 — 제재 근거가 사라진다. */
     public void softDelete(Instant now) {
         if (isDeleted()) {
             return;

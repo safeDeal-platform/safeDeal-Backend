@@ -8,13 +8,11 @@ import java.util.Set;
 /**
  * 매물 상태와 허용 전이.
  *
- * <p>전이표는 "정의한 상태로만 갈 수 있게" 규칙을 한 곳에 모으는 장치이지 동시성 방어가
- * 아니다. 서버 두 대가 동시에 서로 다른 전이를 시도하면 각자 자기 메모리에서 검증해 둘 다
- * 통과한다. <b>최종 심판은 조건부 UPDATE</b>(WHERE status=기대값)이고, 영향 행이 0이면 다른
- * 전이가 선점했다는 뜻이다.
+ * <p>전이표는 허용된 상태만 검증할 뿐 동시성 방어가 아니다 — 최종 심판은 조건부 UPDATE
+ * (WHERE status=기대값)이고, 영향 행이 0이면 다른 전이가 먼저 선점한 것이다.
  *
- * <p>{@code EnumType.STRING}으로 저장한다 — ORDINAL은 상수 순서가 바뀌는 순간 기존 행의
- * 의미가 통째로 달라진다.
+ * <p>{@code EnumType.STRING}으로 저장한다 — ORDINAL은 상수 순서가 바뀌면 기존 행의 의미가
+ * 달라진다.
  */
 public enum ListingStatus {
 
@@ -40,13 +38,10 @@ public enum ListingStatus {
             new EnumMap<>(ListingStatus.class);
 
     static {
-        // 정책이 명시한 전이만 넣는다 — "그 외 전이 금지"가 원칙이라, 있으면 편할 것 같은
-        // 전이를 미리 열어두지 않는다.
+        // 정책이 명시한 전이만 넣는다 — 편할 것 같아도 미리 열어두지 않는다.
         ALLOWED.put(DRAFT, EnumSet.of(PENDING_VERIFICATION, ACTIVE));
-        // 검증 점수가 차단 구간이면 공개되지 못하고 곧바로 차단된다. DELETED는 판매자의
-        // 철회 경로다 — 재촬영을 요구받고 "그만 팔겠다"를 못 하면 그 매물이 검증 대기로
-        // 영원히 남는다. 소프트 삭제라 검증 이력·거래 스냅샷은 보존되므로, BLOCKED를
-        // 못 지우게 한 증거 보존 원칙과 충돌하지 않는다.
+        // BLOCKED: 검증 점수가 차단 구간이면 공개되지 못하고 곧바로 차단된다. DELETED: 판매자의
+        // 철회 경로다 — 재촬영을 요구받고 "그만 팔겠다"를 못 하면 검증 대기로 영원히 남는다.
         ALLOWED.put(PENDING_VERIFICATION, EnumSet.of(ACTIVE, BLOCKED, DELETED));
         // 이미지를 바꾸면 낡은 승인이 그대로 붙는 것을 막으려 검증 대기로 되돌린다.
         ALLOWED.put(ACTIVE, EnumSet.of(SOLD, BLOCKED, DELETED, PENDING_VERIFICATION));
@@ -72,11 +67,8 @@ public enum ListingStatus {
     }
 
     /**
-     * 상세 조회로 열어주는 상태인지.
-     *
-     * <p>목록과 기준이 다르다 — 팔린 매물은 목록에서 빠지지만 상세는 열려 있어야 한다.
-     * 거래 당사자가 나중에 무엇을 샀는지 확인하고, 채팅·신고에서 넘어온 링크가 죽지 않아야
-     * 하기 때문이다. 차단·삭제만 없는 것으로 취급한다.
+     * 상세 조회로 열어주는 상태인지. 목록과 기준이 다르다 — 팔린 매물은 목록에서 빠져도
+     * 상세는 열려야 거래 당사자 확인, 채팅·신고 링크가 죽지 않는다.
      */
     public boolean isViewable() {
         return this == ACTIVE || this == SOLD;

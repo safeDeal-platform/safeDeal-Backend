@@ -79,11 +79,8 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(CommonErrorCode.INVALID_INPUT, message));
     }
 
-    // 필수 헤더·쿠키·matrix 변수 누락. MissingServletRequestParameterException도 이 타입의
-    // 하위이지만 위에 더 구체적인 핸들러가 있어 그쪽이 우선 선택된다.
-    //
-    // MissingPathVariableException은 일부러 여기서 다루지 않는다 — 그건 클라이언트 잘못이 아니라
-    // 컨트롤러 매핑과 메서드 시그니처가 어긋난 서버 버그이므로 500으로 드러나야 한다.
+    // 필수 헤더·쿠키·matrix 변수 누락(더 구체적인 핸들러가 없는 경우). MissingPathVariableException은
+    // 일부러 다루지 않는다 — 그건 클라이언트 잘못이 아니라 컨트롤러 매핑 버그라 500으로 드러나야 한다.
     @ExceptionHandler(MissingRequestValueException.class)
     public ResponseEntity<ApiResponse<Void>> handleMissingRequestValueException(MissingRequestValueException e) {
         return ResponseEntity.status(CommonErrorCode.INVALID_INPUT.getStatus())
@@ -117,21 +114,16 @@ public class GlobalExceptionHandler {
                         CommonErrorCode.UNSUPPORTED_MEDIA_TYPE.getMessage()));
     }
 
-    // UNIQUE·FK 등 제약 위반. 예외 메시지에 실제 데이터와 제약 이름이 들어 있어
-    // (예: Duplicate entry 'a@b.com' for key 'users.email') 응답에는 절대 노출하지 않고
-    // 로그에만 남긴다.
+    // UNIQUE·FK 등 제약 위반. 예외 메시지에 실제 입력값(예: 이메일)이 들어있어, 그대로 로그로
+    // 내보내면 외부 전송되는 로그(Loki)에 개인정보가 그대로 남는다 — 그래서 타입만 남긴다.
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolationException(DataIntegrityViolationException e) {
-        // 예외 객체를 그대로 넘기면 "Duplicate entry 'user@example.com' for key 'users.email'" 처럼
-        // 사용자가 입력한 값이 메시지에 담겨 로그로 나간다. 로그는 Loki로 외부 전송되므로
-        // 개인정보가 그대로 적재된다. 어떤 제약이 깨졌는지는 예외 타입과 스택으로 충분히 좁혀지고,
-        // 실제 값이 필요하면 DB 쪽에서 확인한다.
         log.warn("데이터 제약 조건 위반 - type={}", e.getClass().getName());
         return ResponseEntity.status(CommonErrorCode.CONFLICT.getStatus())
                 .body(ApiResponse.error(CommonErrorCode.CONFLICT, CommonErrorCode.CONFLICT.getMessage()));
     }
 
-    // 낙관적 락 충돌. 재시도로 해결될 수 있는 일시적 충돌이라 별도 코드로 구분한다.
+    // 다른 사람이 먼저 저장해서 생긴 충돌 — 재시도하면 성공할 수 있어서 별도 코드로 구분한다.
     @ExceptionHandler(OptimisticLockingFailureException.class)
     public ResponseEntity<ApiResponse<Void>> handleOptimisticLockingFailureException(
             OptimisticLockingFailureException e) {
@@ -173,9 +165,8 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(CommonErrorCode.METHOD_NOT_ALLOWED, CommonErrorCode.METHOD_NOT_ALLOWED.getMessage()));
     }
 
-    // 메서드 보안(@PreAuthorize 등)에서 던지는 AccessDeniedException은 필터 체인의
-    // ApiAccessDeniedHandler를 타지 않고 컨트롤러/서비스 호출 스택에서 바로 올라오므로
-    // catch-all(Exception.class)이 500으로 삼켜버리기 전에 여기서 먼저 잡는다.
+    // @PreAuthorize 등에서 던지는 AccessDeniedException은 필터 체인의 ApiAccessDeniedHandler를
+    // 타지 않고 바로 올라오므로, catch-all(Exception.class)이 500으로 삼키기 전에 여기서 잡는다.
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<ApiResponse<Void>> handleAccessDeniedException(AccessDeniedException e) {
         return ResponseEntity.status(CommonErrorCode.FORBIDDEN.getStatus())

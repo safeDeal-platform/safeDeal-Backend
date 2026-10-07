@@ -5,11 +5,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * 콘솔에 찍기만 하는 기본 구현. 로컬 개발·테스트용이다.
- *
- * 인증 링크를 로그로 볼 수 있어야 개발자가 메일 계정 없이도 이메일 인증·비밀번호 재설정
- * 흐름을 끝까지 확인할 수 있다. 실제 메일이 나가지 않으므로 운영에서는 절대 쓰지 않는다
- * (app.mail.provider를 resend로 두면 이 빈은 등록되지 않는다).
+ * 콘솔에만 찍는 로컬용 구현 — 메일 계정 없이도 인증 링크를 확인하려고 있다.
+ * provider=resend면 이 빈은 아예 등록되지 않는다.
  */
 @Slf4j
 @Component
