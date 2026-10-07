@@ -1,4 +1,4 @@
-package com.safedeal.domain.chat.service;
+package com.safedeal.global.util;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
