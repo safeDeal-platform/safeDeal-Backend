@@ -20,6 +20,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import java.util.Locale;
 
 import static org.hamcrest.Matchers.greaterThan;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -212,6 +213,29 @@ class AuthFlowTest {
     }
 
     @Test
+    @DisplayName("대소문자만 다른 이메일로 가입을 시도해도 중복으로 막힌다")
+    void duplicateSignupIgnoresEmailCase() throws Exception {
+        String email = unique("dup-case") + "@test.com";
+        signup(email, unique("중복대소문자"));
+
+        mockMvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(signupBody(email.toUpperCase(Locale.ROOT), unique("다른닉2"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("AUTH001"));
+    }
+
+    @Test
+    @DisplayName("이메일 앞뒤 공백은 trim되어 로그인된다")
+    void loginTrimsSurroundingWhitespace() throws Exception {
+        String email = unique("trim") + "@test.com";
+        signup(email, unique("공백"));
+
+        mockMvc.perform(loginRequest(" " + email + " ", "password123"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     @DisplayName("없는 계정과 틀린 비밀번호는 완전히 같은 401을 준다 (계정 열거 방지)")
     void loginFailuresAreIndistinguishable() throws Exception {
         String email = unique("enum") + "@test.com";
@@ -399,5 +423,22 @@ class AuthFlowTest {
         // 같은 IP에서 온 다른 계정까지 잠기면 공유 IP(회사·학교) 사용자가 통째로 막힌다.
         mockMvc.perform(loginRequest(other, "password123"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("로그인 실패 잠금은 이메일 대소문자와 무관하게 같은 계정으로 집계된다")
+    void loginLockIgnoresEmailCase() throws Exception {
+        String email = unique("brute-case") + "@test.com";
+        signup(email, unique("무차별대소문자"));
+        String upper = email.toUpperCase(Locale.ROOT);
+
+        // 대소문자를 번갈아 써도 실패 횟수가 한 계정으로 합산돼야 한다.
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            mockMvc.perform(loginRequest(attempt % 2 == 0 ? upper : email, "wrong-password"))
+                    .andExpect(status().isUnauthorized());
+        }
+        mockMvc.perform(loginRequest(upper, "password123"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("AUTH006"));
     }
 }
