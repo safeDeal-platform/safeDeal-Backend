@@ -59,7 +59,9 @@ public class PasswordResetService {
         if (!mailSendRateLimiter.allowPasswordResetRequest(JwtTokenProvider.hash(normalizedEmail), clientIp)) {
             throw new BusinessException(AuthErrorCode.TOO_MANY_MAIL_REQUESTS);
         }
-        Optional<User> found = userRepository.findByEmailAndDeletedAtIsNull(normalizedEmail);
+        // 유저 행을 잠그고 조회한다 — 동시에 두 번 요청하면 둘 다 소진할 옛 토큰이 없다고 보고 각자
+        // 새 토큰을 만들어 "최신 링크 1개" 보장이 깨질 수 있다(CodeRabbit 지적, PR #40). 이 잠금이 소진·발급을 직렬화한다.
+        Optional<User> found = userRepository.findForPasswordResetUpdate(normalizedEmail);
         if (found.isEmpty()) {
             return;
         }
