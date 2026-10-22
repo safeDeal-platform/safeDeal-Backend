@@ -59,13 +59,20 @@ public class PasswordResetService {
         if (!mailSendRateLimiter.allowPasswordResetRequest(JwtTokenProvider.hash(normalizedEmail), clientIp)) {
             throw new BusinessException(AuthErrorCode.TOO_MANY_MAIL_REQUESTS);
         }
-        // 유저 행을 잠그고 조회한다 — 동시에 두 번 요청하면 둘 다 소진할 옛 토큰이 없다고 보고 각자
-        // 새 토큰을 만들어 "최신 링크 1개" 보장이 깨질 수 있다(CodeRabbit 지적, PR #40). 이 잠금이 소진·발급을 직렬화한다.
-        Optional<User> found = userRepository.findForPasswordResetUpdate(normalizedEmail);
+        // 존재 확인은 잠금 없이 한다 — email(UNIQUE 보조 인덱스)로 바로 잠그면, 가입 안 한
+        // 이메일로 매번 호출되는 이 분기에서 InnoDB가 그 갭에 gap lock을 걸어 같은 이메일로
+        // 들어오는 회원가입 INSERT를 블록할 수 있다(CodeRabbit·L1 리뷰 지적, PR #40).
+        Optional<User> found = userRepository.findByEmailAndDeletedAtIsNull(normalizedEmail);
         if (found.isEmpty()) {
             return;
         }
-        User user = found.get();
+        // 존재가 확인된 뒤에만 id(클러스터 PK)로 다시 잠가 조회한다 — PK 조회는 행이 있으면
+        // 레코드 잠금만 걸려 gap lock 문제가 없다. 이 잠금이 아래 소진·발급 전체를 직렬화해,
+        // 같은 유저가 동시에 두 번 요청해도 "최신 링크 1개" 보장이 깨지지 않게 한다.
+        User user = userRepository.findForPasswordResetUpdate(found.get().getId()).orElse(null);
+        if (user == null) {
+            return;
+        }
 
         if (!user.hasPassword()) {
             MailDispatch.afterCommit(mailSender, user.getEmail(), SUBJECT,
