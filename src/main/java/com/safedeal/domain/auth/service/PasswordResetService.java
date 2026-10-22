@@ -12,6 +12,7 @@ import com.safedeal.global.mail.MailDispatch;
 import com.safedeal.global.mail.MailProperties;
 import com.safedeal.global.mail.MailSender;
 import com.safedeal.global.security.JwtTokenProvider;
+import com.safedeal.global.util.EmailNormalizer;
 import com.safedeal.global.util.SecureToken;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -47,18 +48,31 @@ public class PasswordResetService {
      *
      * OAuth 전용 계정에는 재설정 링크 대신 복구 안내를 메일 본문으로 보낸다 — 화면에 안내를
      * 띄우면 그 자체가 열거 정보가 된다(정책).
+     *
+     * 이메일은 들어오자마자 정규화한다(trim+소문자) — 레이트리밋 키와 계정 조회가 같은 문자열을
+     * 봐야, 대소문자만 바꿔 한도를 우회하는 공격이 안 통한다(D-17, 악센트 변형은 D-18로 남김).
      */
     @Transactional
     public void requestReset(String email, String clientIp) {
+        String normalizedEmail = EmailNormalizer.normalize(email);
         // 계정을 보기 전에 먼저 센다 — 존재하는 주소만 센다면 429 여부로 가입 여부가 드러난다.
-        if (!mailSendRateLimiter.allowPasswordResetRequest(JwtTokenProvider.hash(email), clientIp)) {
+        if (!mailSendRateLimiter.allowPasswordResetRequest(JwtTokenProvider.hash(normalizedEmail), clientIp)) {
             throw new BusinessException(AuthErrorCode.TOO_MANY_MAIL_REQUESTS);
         }
-        Optional<User> found = userRepository.findByEmailAndDeletedAtIsNull(email);
+        // 존재 확인은 잠금 없이 한다 — email(UNIQUE 보조 인덱스)로 바로 잠그면, 가입 안 한
+        // 이메일로 매번 호출되는 이 분기에서 InnoDB가 그 갭에 gap lock을 걸어 같은 이메일로
+        // 들어오는 회원가입 INSERT를 블록할 수 있다(CodeRabbit·L1 리뷰 지적, PR #40).
+        Optional<User> found = userRepository.findByEmailAndDeletedAtIsNull(normalizedEmail);
         if (found.isEmpty()) {
             return;
         }
-        User user = found.get();
+        // 존재가 확인된 뒤에만 id(클러스터 PK)로 다시 잠가 조회한다 — PK 조회는 행이 있으면
+        // 레코드 잠금만 걸려 gap lock 문제가 없다. 이 잠금이 아래 소진·발급 전체를 직렬화해,
+        // 같은 유저가 동시에 두 번 요청해도 "최신 링크 1개" 보장이 깨지지 않게 한다.
+        User user = userRepository.findForPasswordResetUpdate(found.get().getId()).orElse(null);
+        if (user == null) {
+            return;
+        }
 
         if (!user.hasPassword()) {
             MailDispatch.afterCommit(mailSender, user.getEmail(), SUBJECT,
@@ -67,14 +81,20 @@ public class PasswordResetService {
             return;
         }
 
+        // 새 링크를 만들기 전에 옛 미사용 링크를 전부 소진한다(D-15) — save보다 먼저 와야
+        // 방금 만든 새 토큰이 스스로 걸리지 않는다.
+        Instant now = Instant.now();
+        tokenRepository.markAllUsedByUserId(user.getId(), now);
+
         String rawToken = SecureToken.generate();
         tokenRepository.save(PasswordResetToken.issue(
-                user.getId(), JwtTokenProvider.hash(rawToken), Instant.now().plus(TTL)));
+                user.getId(), JwtTokenProvider.hash(rawToken), now.plus(TTL)));
 
         String link = mailProperties.getBaseUrl() + "/auth/password/reset?token=" + rawToken;
         // 커밋 후 발송 — 토큰 행이 롤백되면 열리지 않는 링크를 보내는 셈이 된다.
         MailDispatch.afterCommit(mailSender, user.getEmail(), SUBJECT,
-                "아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 30분 동안 유효합니다.\n" + link);
+                "아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 30분 동안 유효합니다.\n"
+                        + "새 링크를 요청하면 이전 링크는 사용할 수 없습니다.\n" + link);
     }
 
     /**
