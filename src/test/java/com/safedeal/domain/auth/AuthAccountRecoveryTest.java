@@ -32,6 +32,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -299,6 +300,107 @@ class AuthAccountRecoveryTest {
         assertThat(forRegistered).isEqualTo(forUnregistered);
         assertThat(mailSender.sentTo(registered)).hasSize(1);
         assertThat(mailSender.sentTo(unregistered)).isEmpty();
+    }
+
+    // ---------- D-15 재설정 링크 단일화 ----------
+
+    @Test
+    @DisplayName("재요청하면 옛 재설정 링크는 쓸 수 없고, 비밀번호도 그대로다")
+    void newResetRequestInvalidatesPreviousLink() throws Exception {
+        String email = unique("invalidate") + "@test.com";
+        signup(email, unique("무효화"));
+        mailSender.clear();
+
+        resetRequest(email).andExpect(status().isOk());
+        String firstToken = mailSender.tokenFromLastMailTo(email);
+        resetRequest(email).andExpect(status().isOk());
+
+        reset(firstToken, "new-password-1234")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("AUTH009"));
+        login(email, "password123").andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("재요청해도 가장 최근 링크는 그대로 쓸 수 있다 (저장 순서 회귀 방지)")
+    void latestResetLinkStillWorksAfterReissue() throws Exception {
+        String email = unique("latest") + "@test.com";
+        signup(email, unique("최신링크"));
+        mailSender.clear();
+
+        resetRequest(email).andExpect(status().isOk());
+        resetRequest(email).andExpect(status().isOk());
+        // 소진을 save 뒤에 넣는 실수를 하면 방금 만든 이 토큰도 같이 죽어 여기서 400이 난다.
+        String secondToken = mailSender.tokenFromLastMailTo(email);
+
+        reset(secondToken, "new-password-1234").andExpect(status().isOk());
+        login(email, "new-password-1234").andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("무효화는 요청한 유저 범위에만 적용되고 다른 유저의 링크는 건드리지 않는다")
+    void resetInvalidationIsScopedToRequestingUser() throws Exception {
+        String emailA = unique("scope-a") + "@test.com";
+        String emailB = unique("scope-b") + "@test.com";
+        signup(emailA, unique("A유저"));
+        signup(emailB, unique("B유저"));
+        mailSender.clear();
+
+        resetRequest(emailB).andExpect(status().isOk());
+        String tokenB = mailSender.tokenFromLastMailTo(emailB);
+        // A의 재요청이 WHERE userId 조건 없이 전체를 소진하면 B의 토큰도 죽는다.
+        resetRequest(emailA).andExpect(status().isOk());
+
+        reset(tokenB, "new-password-1234").andExpect(status().isOk());
+        login(emailB, "new-password-1234").andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("재설정 메일 본문에 이전 링크가 무효화된다는 안내가 들어가고, 토큰 추출도 그대로 된다")
+    void resetMailWarnsThatOlderLinksExpire() throws Exception {
+        String email = unique("warn") + "@test.com";
+        signup(email, unique("안내문구"));
+        mailSender.clear();
+
+        resetRequest(email).andExpect(status().isOk());
+
+        assertThat(mailSender.lastTo(email).orElseThrow().body())
+                .contains("이전 링크는 사용할 수 없습니다");
+        // 안내 문구를 링크 뒤에 붙이면 tokenFromLastMailTo가 문구까지 토큰으로 읽어 깨진다.
+        reset(mailSender.tokenFromLastMailTo(email), "new-password-1234").andExpect(status().isOk());
+    }
+
+    // ---------- 이메일 정규화 (D-17 — 입력만, 기존 데이터는 그대로 둠) ----------
+
+    @Test
+    @DisplayName("대소문자만 바꿔 재설정을 요청해도 같은 계정으로 취급해 한도를 공유한다")
+    void resetRateLimitIgnoresEmailCase() throws Exception {
+        String email = unique("case") + "@test.com";
+        signup(email, unique("대소문자"));
+        mailSender.clear();
+        String upper = email.toUpperCase(Locale.ROOT);
+
+        resetRequest(email).andExpect(status().isOk());
+        resetRequest(upper).andExpect(status().isOk());
+        resetRequest(email).andExpect(status().isOk());
+        // 대소문자를 또 바꿔도 같은 계정의 4번째 요청이라 한도에 걸려야 한다.
+        resetRequest(upper)
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("AUTH010"));
+
+        assertThat(mailSender.sentTo(email)).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("가입 시 이메일은 소문자로 저장되고, 인증 메일도 그 주소로 간다")
+    void signupStoresLowerCasedEmail() throws Exception {
+        String normalized = unique("casemix") + "@test.com";
+        String mixedCase = normalized.substring(0, normalized.indexOf('@')).toUpperCase(Locale.ROOT) + "@Test.com";
+
+        signup(mixedCase, unique("대소문자가입"));
+
+        assertThat(userRepository.findByEmailAndDeletedAtIsNull(normalized)).isPresent();
+        assertThat(mailSender.sentTo(normalized)).hasSize(1);
     }
 
     // ---------- 만료 ----------
