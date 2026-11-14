@@ -155,6 +155,12 @@ claude-code-action은 PR의 `ai-review.yml`이 기본 브랜치(dev)와 한 글�
 | M1 | forbidden_tool일 때 걸린 도구 **이름만** stderr 로그에 `forbidden_tools=<이름,…>`로 남긴다(init의 금지 도구 + 허용 밖 tool_use, 처음 나온 순서, 중복 없음). 이름이 `^[A-Za-z0-9_.-]{1,100}$`가 아니면 `<invalid>`. 판정 출력 줄과 GITHUB_OUTPUT은 그대로. 원인을 본 뒤 고친다 |
 | M2 | 요약 검토 범위의 경로에 든 제어 문자는 지우지 않고 escape(`\n`, `\r`, `\t`, 그 밖 `\xNN`)로 보여 준다(CodeRabbit #42) |
 
+## ToolSearch 허용 (재민 승인, 2026-11-15 — "Allow it")
+
+| # | 결정 |
+|---|---|
+| N1 | #42 로그 `forbidden_tools=ToolSearch`: Claude가 inline 댓글 도구의 사용법을 불러오려고 ToolSearch를 썼다. ToolSearch는 사용법만 불러오는 무해한 보조 도구이므로 verdict.mjs에서 따로 허용한다(`HELPER_TOOLS`). `--allowedTools`·`ALLOWED_TOOLS`에는 넣지 않는다(권한이 필요 없고, 넣으면 ai-review.yml이 바뀌어 L2 우회가 필요). ToolSearch로 불러온 다른 도구를 쓰면 여전히 판정 불가 |
+
 ## 사람이 할 일 (Claude가 대신하지 않음)
 
 | 누가 | 할 일 |

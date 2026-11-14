@@ -365,8 +365,8 @@ test('CIR-27 GITHUB_OUTPUT이 있으면 같은 판정 줄을 덧붙인다', () =
 
 // M1: forbidden_tool일 때 어떤 도구가 걸렸는지 이름만 로그에 남긴다(실행 기록은 보안상 로그에 안 나온다).
 test('M1 걸린 도구 이름: init의 금지 도구와 허용 밖 tool_use를 처음 나온 순서로, 중복 없이', () => {
-  const json = execution(init(['Read', 'Bash', INLINE]), use('ToolSearch'), use('ToolSearch'), use('Read'), result('끝'));
-  assert.deepEqual(forbiddenToolNames(json, ALLOWED_TOOLS_FIXTURE), ['Bash', 'ToolSearch']);
+  const json = execution(init(['Read', 'Bash', INLINE]), use('Skill'), use('Skill'), use('Read'), result('끝'));
+  assert.deepEqual(forbiddenToolNames(json, ALLOWED_TOOLS_FIXTURE), ['Bash', 'Skill']);
 });
 
 test('M1 허용 도구만 썼으면 빈 목록, 실행 기록이 깨졌으면 빈 목록', () => {
@@ -380,8 +380,28 @@ test('M1 이름이 문자열이 아니거나 이상한 글자가 있으면 <inva
 });
 
 test('M1 CLI는 forbidden_tool일 때 걸린 도구 이름을 stderr에 남기고, 판정 출력 줄은 그대로', () => {
-  const r = conclude([init(['Read', 'Bash']), use('ToolSearch'), result(`P1[${N}]: 0\nP2[${N}]: 0\nVERDICT[${N}]: PASS`)]);
-  assert.match(r.err, /forbidden_tools=Bash,ToolSearch/);
+  const r = conclude([init(['Read', 'Bash']), use('Skill'), result(`P1[${N}]: 0\nP2[${N}]: 0\nVERDICT[${N}]: PASS`)]);
+  assert.match(r.err, /forbidden_tools=Bash,Skill/);
   assert.match(r.out, /^reason=forbidden_tool$/m);
   assert.doesNotMatch(r.out, /forbidden_tools=/);
+});
+
+// N1: ToolSearch는 지연 로딩된 도구(inline 댓글 도구 등)의 사용법만 불러오는 무해한 보조 도구라 써도 된다(#42 실측).
+// --allowedTools에는 넣지 않는다(권한이 필요 없는 도구이고, 넣으면 ai-review.yml이 바뀐다).
+test('N1 ToolSearch를 써도 forbidden_tool이 아니다', () => {
+  const json = execution(init(['Read', 'ToolSearch', INLINE]), use('ToolSearch'), use(INLINE), result('끝'));
+  assert.equal(checkTools(json, ALLOWED_TOOLS_FIXTURE), null);
+  assert.deepEqual(forbiddenToolNames(json, ALLOWED_TOOLS_FIXTURE), []);
+});
+
+test('N1 ToolSearch로 불러온 다른 도구를 쓰면 여전히 forbidden_tool', () => {
+  const json = execution(init(['Read']), use('ToolSearch'), use('mcp__github__create_pull_request'), result('끝'));
+  assert.deepEqual(checkTools(json, ALLOWED_TOOLS_FIXTURE), forbidden);
+  assert.deepEqual(forbiddenToolNames(json, ALLOWED_TOOLS_FIXTURE), ['mcp__github__create_pull_request']);
+});
+
+test('N1 ToolSearch를 쓰고 PASS 표식이면 CLI도 PASS', () => {
+  const r = conclude([init(['Read', INLINE]), use('ToolSearch'), use(INLINE), result(`P1[${N}]: 0\nP2[${N}]: 1\nVERDICT[${N}]: PASS`)]);
+  assert.match(r.out, /^verdict=PASS$/m);
+  assert.equal(r.status, 0);
 });
