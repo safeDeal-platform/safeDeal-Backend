@@ -131,9 +131,15 @@
 | J2 | CIR-34("해결됨" 표시)는 **보류**. 이전 지적이 해결됐는지 판단할 근거(예: Claude가 이전 inline 지적을 다시 보고 판단)를 설계한 뒤 시범 PR에서 정한다. 지금 워크플로는 빈 목록을 넘긴다 |
 | J3 | 동시 실행 그룹(`ai-review-<PR 번호>`, cancel-in-progress)은 그대로 둔다. 그룹에 SHA를 넣으면 새 push가 이전 실행을 취소하지 못해 CIR-12가 깨진다 |
 
+## 룰셋 대상 정정 (재민 승인, 2026-11-14 — "Only dev and main")
+
+| # | 결정 |
+|---|---|
+| K1 | **Q13 수정:** `ai-review` 룰셋(PR 필수·ai-review 필수·코드 소유자 승인 등)의 대상은 dev와 main만이다. 모든 브랜치로 걸면 작업 브랜치 push와 새 브랜치 생성까지 막힌다(GH013로 실제 확인). 리뷰 실행은 그대로 모든 브랜치로 가는 PR에서 돈다(워크플로에 브랜치 필터 없음) |
+
 ## 사람이 할 일 (Claude가 대신하지 않음)
 
 | 누가 | 할 일 |
 |---|---|
 | 재민 | `claude setup-token` 실행 → 레포 시크릿 `CLAUDE_CODE_OAUTH_TOKEN` 등록(토큰은 채팅·로그에 붙여넣지 않는다), claude.ai 사용 크레딧 꺼짐 확인 |
-| 경화(레포 관리자) | 동의 기록, Claude GitHub App 설치(이 레포만), Interaction limits 설정, Actions 외부 기여자 승인 설정, 새 룰셋 생성(모든 브랜치: `ai-review` 필수 + 코드 소유자 승인 필수 + 최신 push 기준 승인 필수 + 새 커밋이 오면 기존 승인 해제), CODEOWNERS를 dev·main 둘 다에 반영, ai-review를 처음 넣는 PR 직접 리뷰 |
+| 경화(레포 관리자) | 동의 기록, Claude GitHub App 설치(이 레포만), Interaction limits 설정, Actions 외부 기여자 승인 설정, 새 룰셋 생성(dev·main, K1: `ai-review` 필수 + 코드 소유자 승인 필수 + 최신 push 기준 승인 필수 + 새 커밋이 오면 기존 승인 해제), CODEOWNERS를 dev·main 둘 다에 반영, ai-review를 처음 넣는 PR 직접 리뷰 |
