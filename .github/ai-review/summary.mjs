@@ -4,9 +4,10 @@
 //     입력 env: VERDICT, VERDICT_REASON, FINDINGS(verdict.mjs conclude 출력), GATE_REASON, HEAD_SHA, DIFF_FILE
 //     출력: 요약 글(markdown)을 stdout에
 //   node .github/ai-review/summary.mjs comment
-//     입력 env: BODY_FILE, PR_NUMBER, HEAD_SHA, GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_API_URL
+//     입력 env: BODY_FILE, PR_NUMBER, GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_API_URL, GITHUB_EVENT_PATH
 //     표식이 있는 github-actions[bot] 요약 댓글 1개를 수정하고, 없으면 새로 단다(CIR-32).
-//     PR의 현재 head가 HEAD_SHA와 다르면(옛 커밋 Re-run 등) 댓글을 건드리지 않고 실패한다(CIR-42).
+//     PR의 현재 head가 이번 실행 SHA(이벤트 파일의 pull_request.head.sha)와 다르면
+//     (옛 커밋 Re-run 등) 댓글을 건드리지 않고 실패한다(CIR-42·L1).
 //     실패하면 종료 코드 1(판정은 이미 $GITHUB_STEP_SUMMARY에 있다, CIR-27).
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -108,6 +109,16 @@ export function filesFromDiff(diffText) {
 
 // CIR-42: 이번 실행 SHA와 PR 현재 head가 둘 다 온전한 SHA이고 같을 때만 최신 실행이다. 확인할 수 없으면 오래된 실행으로 본다.
 const FULL_SHA = /^[0-9a-f]{40}$/;
+
+// CIR-42·L1: GitHub가 넣어 주는 이벤트 JSON에서 이번 실행의 PR head SHA를 읽는다. 읽을 수 없으면 undefined.
+export function runShaFromEvent(eventText) {
+  try {
+    const sha = JSON.parse(eventText)?.pull_request?.head?.sha;
+    return typeof sha === 'string' ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
 export function isStaleHead({ runSha, currentHeadSha } = {}) {
   return !(FULL_SHA.test(runSha ?? '') && FULL_SHA.test(currentHeadSha ?? '') && runSha === currentHeadSha);
 }
@@ -150,9 +161,12 @@ async function upsertComment(env) {
   if (!env.GITHUB_TOKEN || !/^[\w.-]+\/[\w.-]+$/.test(repo ?? '') || !/^[1-9]\d*$/.test(pr ?? '')) {
     throw new Error('GITHUB_TOKEN·GITHUB_REPOSITORY·PR_NUMBER가 필요하다');
   }
+  const runSha = env.GITHUB_EVENT_PATH && existsSync(env.GITHUB_EVENT_PATH)
+    ? runShaFromEvent(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'))
+    : undefined;
   const current = await github(env, 'GET', `/repos/${repo}/pulls/${pr}`);
-  if (isStaleHead({ runSha: env.HEAD_SHA, currentHeadSha: current?.head?.sha })) {
-    throw new Error(`오래된 실행이라 요약 댓글을 고치지 않는다(실행 ${env.HEAD_SHA ?? '?'}, 현재 head ${current?.head?.sha ?? '?'})`);
+  if (isStaleHead({ runSha, currentHeadSha: current?.head?.sha })) {
+    throw new Error(`오래된 실행이라 요약 댓글을 고치지 않는다(실행 ${runSha ?? '?'}, 현재 head ${current?.head?.sha ?? '?'})`);
   }
   const body = readFileSync(env.BODY_FILE, 'utf8');
   const comments = [];
