@@ -118,9 +118,59 @@
 | I3 | claude-code-action은 나온 지 2주 넘은 릴리스의 커밋 SHA로 고정한다(새 릴리스의 공급망 위험을 줄임) |
 | 기타 | I1·I2는 테스트 변경(구현과 다른 커밋). 첫 PR은 워크플로가 dev에 없어 ai-review가 통과할 수 없으므로, `ai-review` 필수 룰셋은 이 PR 머지 뒤에 켠다 |
 
+## PR #41 CodeRabbit 리뷰 후 추가 케이스 (재민 승인, 2026-11-14 — 권장안대로, "백엔드 먼저")
+
+| ID | 관점 | 상황 | 기대 결과 | 테스트 |
+|---|---|---|---|---|
+| CIR-41 | 경계값 | git이 한글·역슬래시·따옴표·제어 문자가 든 경로를 `"a/\355\225\234.md"`처럼 C 방식으로 인용 | 요약 검토 범위에 실제 경로(`한.md`)를 적는다. 인용되지 않은 경로는 그대로 | 단위 |
+| CIR-42 | 중복 실행 | 옛 커밋 실행을 Re-run해 같은 PR 그룹의 최신 실행이 취소됨 | 요약 댓글을 고치기 전에 PR의 현재 head SHA와 이번 실행 SHA를 비교한다. 다르거나 어느 쪽이든 확인할 수 없으면 댓글을 건드리지 않고 종료 코드 1. 최신 커밋의 체크는 "취소"로 남아 머지가 막히므로 사람이 최신 실행을 다시 돌린다 | 단위 + workflow |
+
+| # | 결정 |
+|---|---|
+| J1 | CIR-41·CIR-42는 고친다(테스트 먼저, 테스트·구현 커밋 분리) |
+| J2 | CIR-34("해결됨" 표시)는 **보류**. 이전 지적이 해결됐는지 판단할 근거(예: Claude가 이전 inline 지적을 다시 보고 판단)를 설계한 뒤 시범 PR에서 정한다. 지금 워크플로는 빈 목록을 넘긴다 |
+| J3 | 동시 실행 그룹(`ai-review-<PR 번호>`, cancel-in-progress)은 그대로 둔다. 그룹에 SHA를 넣으면 새 push가 이전 실행을 취소하지 못해 CIR-12가 깨진다 |
+
+## 룰셋 대상 정정 (재민 승인, 2026-11-14 — "Only dev and main")
+
+| # | 결정 |
+|---|---|
+| K1 | **Q13 수정:** `ai-review` 룰셋(PR 필수·ai-review 필수·코드 소유자 승인 등)의 대상은 dev와 main만이다. 모든 브랜치로 걸면 작업 브랜치 push와 새 브랜치 생성까지 막힌다(GH013로 실제 확인). 리뷰 실행은 그대로 모든 브랜치로 가는 PR에서 돈다(워크플로에 브랜치 필터 없음) |
+
+## 워크플로 변경 PR 처리 (재민 승인, 2026-11-14 — "Proceed as recommended")
+
+claude-code-action은 PR의 `ai-review.yml`이 기본 브랜치(dev)와 한 글자라도 다르면 Claude를 실행하지 않는다(보안 장치, #42에서 확인). 그래서 워크플로를 바꾸는 PR은 항상 판정 불가가 된다.
+
+| # | 결정 |
+|---|---|
+| L1 | **CIR-42 구현 방식 변경:** 이번 실행 SHA는 워크플로 env(`HEAD_SHA`)가 아니라 GitHub가 넣어 주는 이벤트 파일(`GITHUB_EVENT_PATH`의 `pull_request.head.sha`)에서 읽는다. #42는 `ai-review.yml`을 고치지 않는다. 워크플로 env를 요구하던 테스트는 이벤트 파일 읽기 단위 테스트로 바꾼다(테스트 변경 승인) |
+| L2 | `ai-review.yml`을 바꾸는 PR은 ai-review를 통과할 수 없으므로, `ai-review` 룰셋 Bypass list에 Repository admin(경화)을 "For pull requests only"로 둔다. 우회 머지는 **워크플로 변경 PR에만** 쓰고, 그 PR은 코드 소유자가 직접 꼼꼼히 리뷰한다 |
+
+## #42 시범 실행 후 추가 결정 (재민 승인, 2026-11-14 — "Add both")
+
+#42에서 Claude가 처음 실제로 실행됐으나(3턴, 성공 종료) 판정이 `forbidden_tool`이었다. 실행 기록은 보안상 로그에 나오지 않아 어떤 도구가 걸렸는지 알 수 없었다.
+
+| # | 결정 |
+|---|---|
+| M1 | forbidden_tool일 때 걸린 도구 **이름만** stderr 로그에 `forbidden_tools=<이름,…>`로 남긴다(init의 금지 도구 + 허용 밖 tool_use, 처음 나온 순서, 중복 없음). 이름이 `^[A-Za-z0-9_.-]{1,100}$`가 아니면 `<invalid>`. 판정 출력 줄과 GITHUB_OUTPUT은 그대로. 원인을 본 뒤 고친다 |
+| M2 | 요약 검토 범위의 경로에 든 제어 문자는 지우지 않고 escape(`\n`, `\r`, `\t`, 그 밖 `\xNN`)로 보여 준다(CodeRabbit #42) |
+
+## ToolSearch 허용 (재민 승인, 2026-11-15 — "Allow it")
+
+| # | 결정 |
+|---|---|
+| N1 | #42 로그 `forbidden_tools=ToolSearch`: Claude가 inline 댓글 도구의 사용법을 불러오려고 ToolSearch를 썼다. ToolSearch는 사용법만 불러오는 무해한 보조 도구이므로 verdict.mjs에서 따로 허용한다(`HELPER_TOOLS`). `--allowedTools`·`ALLOWED_TOOLS`에는 넣지 않는다(권한이 필요 없고, 넣으면 ai-review.yml이 바뀌어 L2 우회가 필요). ToolSearch로 불러온 다른 도구를 쓰면 여전히 판정 불가 |
+
+## 요약 경로 표시 보완 (CodeRabbit #42, 2026-11-15)
+
+| # | 결정 |
+|---|---|
+| M3 | 경로의 백틱을 지우지 않는다. 내용의 가장 긴 백틱 연속보다 한 개 긴 구분자로 감싸고, 백틱이나 공백으로 시작·끝나면 앞뒤에 공백을 둔다(CommonMark가 양끝 공백 한 칸씩을 지우므로, M2의 "서로 다른 경로는 다르게 보인다"를 따름) |
+| M4 | **보류:** 인용되지 않은 경로 안의 ` b/`(예: `foo b/bar`)는 `diff --git` 헤더만으로 경계를 정할 수 없다. 이 레포에 그런 이름이 없고 요약 표시는 판정에 영향이 없어 지금은 고치지 않는다. 고치려면 `+++ b/`·`rename to` 줄을 읽거나 워크플로에서 `--name-only -z` 목록을 따로 만들어야 한다(후자는 ai-review.yml 변경 → L2) |
+
 ## 사람이 할 일 (Claude가 대신하지 않음)
 
 | 누가 | 할 일 |
 |---|---|
 | 재민 | `claude setup-token` 실행 → 레포 시크릿 `CLAUDE_CODE_OAUTH_TOKEN` 등록(토큰은 채팅·로그에 붙여넣지 않는다), claude.ai 사용 크레딧 꺼짐 확인 |
-| 경화(레포 관리자) | 동의 기록, Claude GitHub App 설치(이 레포만), Interaction limits 설정, Actions 외부 기여자 승인 설정, 새 룰셋 생성(모든 브랜치: `ai-review` 필수 + 코드 소유자 승인 필수 + 최신 push 기준 승인 필수 + 새 커밋이 오면 기존 승인 해제), CODEOWNERS를 dev·main 둘 다에 반영, ai-review를 처음 넣는 PR 직접 리뷰 |
+| 경화(레포 관리자) | 동의 기록, Claude GitHub App 설치(이 레포만), Interaction limits 설정, Actions 외부 기여자 승인 설정, 새 룰셋 생성(dev·main, K1: `ai-review` 필수 + 코드 소유자 승인 필수 + 최신 push 기준 승인 필수 + 새 커밋이 오면 기존 승인 해제), CODEOWNERS를 dev·main 둘 다에 반영, ai-review를 처음 넣는 PR 직접 리뷰 |

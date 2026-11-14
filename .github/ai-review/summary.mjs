@@ -4,8 +4,10 @@
 //     입력 env: VERDICT, VERDICT_REASON, FINDINGS(verdict.mjs conclude 출력), GATE_REASON, HEAD_SHA, DIFF_FILE
 //     출력: 요약 글(markdown)을 stdout에
 //   node .github/ai-review/summary.mjs comment
-//     입력 env: BODY_FILE, PR_NUMBER, GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_API_URL
+//     입력 env: BODY_FILE, PR_NUMBER, GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_API_URL, GITHUB_EVENT_PATH
 //     표식이 있는 github-actions[bot] 요약 댓글 1개를 수정하고, 없으면 새로 단다(CIR-32).
+//     PR의 현재 head가 이번 실행 SHA(이벤트 파일의 pull_request.head.sha)와 다르면
+//     (옛 커밋 Re-run 등) 댓글을 건드리지 않고 실패한다(CIR-42·L1).
 //     실패하면 종료 코드 1(판정은 이미 $GITHUB_STEP_SUMMARY에 있다, CIR-27).
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -45,7 +47,19 @@ export function pickReason({ gateReason, verdictReason } = {}) {
 }
 
 const shortSha = (sha) => (typeof sha === 'string' && /^[0-9a-f]{7,40}$/i.test(sha) ? sha.slice(0, 7) : '알 수 없음');
-const code = (s) => `\`${String(s).replace(/[`\r\n]/g, '')}\``;
+// M2: 제어 문자는 지우지 않고 escape로 보여 준다(a<줄바꿈>b.md와 ab.md 구분).
+// 역슬래시를 먼저 \\로 바꿔야 실제 줄바꿈(\n 표시)과 "역슬래시+n" 글자(\\n 표시)가 구분된다.
+const CONTROL_ESCAPES = { '\\': '\\\\', '\n': '\\n', '\r': '\\r', '\t': '\\t' };
+const showControl = (ch) => CONTROL_ESCAPES[ch] ?? `\\x${ch.charCodeAt(0).toString(16).padStart(2, '0')}`;
+// M3: 백틱은 지우지 않고, 내용의 가장 긴 백틱 연속보다 한 개 긴 구분자로 감싼다.
+// 백틱이나 공백으로 시작·끝나면 앞뒤 공백(CommonMark가 코드 스팬 양끝 공백을 한 칸씩 지우므로).
+const code = (s) => {
+  const text = String(s).replace(/[\\\x00-\x1f\x7f]/g, showControl);
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = '`'.repeat(longest + 1);
+  const pad = /^[ `]|[ `]$/.test(text) ? ' ' : '';
+  return `${fence}${pad}${text}${pad}${fence}`;
+};
 const isCount = (n) => Number.isInteger(n) && n >= 0;
 
 export function buildSummary({ verdict, reason, sha, reviewedFiles, findingCount, resolved } = {}) {
@@ -76,14 +90,49 @@ export function findSummaryComment(comments) {
   return found ? found.id : null;
 }
 
-// 변경분 파일(git diff 출력)의 `diff --git a/<경로> b/<경로>` 줄에서 바뀐 파일 경로를 읽는다.
+// CIR-41: git이 C 방식으로 인용한 경로("..." 안의 \NNN 8진수 바이트, \t, \", \\ 등)를 실제 경로로 되돌린다.
+const ESCAPES = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 };
+function unquoteGitPath(s) {
+  const bytes = [];
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== '\\') {
+      bytes.push(...Buffer.from(s[i], 'utf8'));
+    } else if (/^[0-7]{3}$/.test(s.slice(i + 1, i + 4))) {
+      bytes.push(parseInt(s.slice(i + 1, i + 4), 8));
+      i += 3;
+    } else {
+      const c = s[++i] ?? '';
+      bytes.push(...(c in ESCAPES ? [ESCAPES[c]] : Buffer.from(c, 'utf8')));
+    }
+  }
+  return Buffer.from(bytes).toString('utf8');
+}
+
+// 변경분 파일(git diff 출력)의 `diff --git a/<경로> b/<경로>` 줄에서 바뀐 파일 경로(b쪽)를 읽는다.
 export function filesFromDiff(diffText) {
   const files = [];
   for (const line of String(diffText ?? '').split(/\r?\n/)) {
-    const m = line.match(/^diff --git "?a\/.*?"? "?b\/(.*?)"?$/);
-    if (m && !files.includes(m[1])) files.push(m[1]);
+    const quoted = line.match(/^diff --git .* "b\/((?:[^"\\]|\\.)*)"$/);
+    const path = quoted ? unquoteGitPath(quoted[1]) : line.match(/^diff --git "?a\/.*?"? b\/(.*)$/)?.[1];
+    if (path && !files.includes(path)) files.push(path);
   }
   return files;
+}
+
+// CIR-42: 이번 실행 SHA와 PR 현재 head가 둘 다 온전한 SHA이고 같을 때만 최신 실행이다. 확인할 수 없으면 오래된 실행으로 본다.
+const FULL_SHA = /^[0-9a-f]{40}$/;
+
+// CIR-42·L1: GitHub가 넣어 주는 이벤트 JSON에서 이번 실행의 PR head SHA를 읽는다. 읽을 수 없으면 undefined.
+export function runShaFromEvent(eventText) {
+  try {
+    const sha = JSON.parse(eventText)?.pull_request?.head?.sha;
+    return typeof sha === 'string' ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
+export function isStaleHead({ runSha, currentHeadSha } = {}) {
+  return !(FULL_SHA.test(runSha ?? '') && FULL_SHA.test(currentHeadSha ?? '') && runSha === currentHeadSha);
 }
 
 function buildFromEnv(env) {
@@ -123,6 +172,13 @@ async function upsertComment(env) {
   const pr = env.PR_NUMBER;
   if (!env.GITHUB_TOKEN || !/^[\w.-]+\/[\w.-]+$/.test(repo ?? '') || !/^[1-9]\d*$/.test(pr ?? '')) {
     throw new Error('GITHUB_TOKEN·GITHUB_REPOSITORY·PR_NUMBER가 필요하다');
+  }
+  const runSha = env.GITHUB_EVENT_PATH && existsSync(env.GITHUB_EVENT_PATH)
+    ? runShaFromEvent(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'))
+    : undefined;
+  const current = await github(env, 'GET', `/repos/${repo}/pulls/${pr}`);
+  if (isStaleHead({ runSha, currentHeadSha: current?.head?.sha })) {
+    throw new Error(`오래된 실행이라 요약 댓글을 고치지 않는다(실행 ${runSha ?? '?'}, 현재 head ${current?.head?.sha ?? '?'})`);
   }
   const body = readFileSync(env.BODY_FILE, 'utf8');
   const comments = [];

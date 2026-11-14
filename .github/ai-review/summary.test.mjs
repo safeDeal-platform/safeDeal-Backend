@@ -1,7 +1,7 @@
 // 요약 댓글 — CIR-05, 06, 10, 11, 13, 14, 15, 23, 24, 26, 32, 34, 36, 39, F1, G2, G4, G6
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SUMMARY_MARKER, buildSummary, findSummaryComment, pickReason } from './summary.mjs';
+import { SUMMARY_MARKER, buildSummary, filesFromDiff, findSummaryComment, isStaleHead, pickReason, runShaFromEvent } from './summary.mjs';
 
 const MARKER = '<!-- ai-review-summary -->';
 const SHA = '0123456789abcdef0123456789abcdef01234567';
@@ -136,4 +136,91 @@ test('G4 gate 이유가 비면 판정 이유', () => {
 test('G4 둘 다 비면 unknown', () => {
   assert.equal(pickReason({ gateReason: '', verdictReason: '' }), 'unknown');
   assert.equal(pickReason({}), 'unknown');
+});
+
+// CIR-41: git이 C 방식으로 인용한 경로를 실제 경로로 되돌린다.
+test('CIR-41 인용되지 않은 경로는 그대로', () => {
+  assert.deepEqual(filesFromDiff('diff --git a/src/A.java b/src/A.java\n+x'), ['src/A.java']);
+});
+
+// 입력은 git이 실제로 찍는 글자 그대로 쓰려고 String.raw를 쓴다(\355는 역슬래시+숫자 세 글자).
+test('CIR-41 한글 경로(8진수 UTF-8 바이트)를 실제 경로로', () => {
+  assert.deepEqual(filesFromDiff(String.raw`diff --git "a/docs/\355\225\234.md" "b/docs/\355\225\234.md"`), ['docs/한.md']);
+});
+
+test('CIR-41 역슬래시·따옴표·탭 escape를 되돌린다', () => {
+  assert.deepEqual(filesFromDiff(String.raw`diff --git "a/a\\b.txt" "b/a\\b.txt"`), ['a\\b.txt']);
+  assert.deepEqual(filesFromDiff(String.raw`diff --git "a/q\"x.txt" "b/q\"x.txt"`), ['q"x.txt']);
+  assert.deepEqual(filesFromDiff(String.raw`diff --git "a/t\tab.txt" "b/t\tab.txt"`), ['t\tab.txt']);
+});
+
+test('CIR-41 이름이 바뀌어 b쪽만 인용된 경우 b쪽 경로', () => {
+  assert.deepEqual(filesFromDiff(String.raw`diff --git a/old.md "b/\355\225\234.md"`), ['한.md']);
+});
+
+// CIR-42: 요약 댓글을 고치기 전에 PR 현재 head와 이번 실행 SHA를 비교한다. 확인할 수 없으면 오래된 실행으로 본다.
+const OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
+test('CIR-42 현재 head와 실행 SHA가 같으면 최신 실행', () => {
+  assert.equal(isStaleHead({ runSha: SHA, currentHeadSha: SHA }), false);
+});
+
+test('CIR-42 현재 head가 다르면 오래된 실행', () => {
+  assert.equal(isStaleHead({ runSha: SHA, currentHeadSha: OTHER }), true);
+});
+
+test('CIR-42 어느 쪽이든 없거나 SHA 형식이 아니면 오래된 실행으로 본다(fail closed)', () => {
+  for (const [runSha, currentHeadSha] of [[undefined, SHA], [SHA, undefined], ['', SHA], [SHA, ''], ['abc', 'abc'], [SHA.slice(0, 7), SHA]]) {
+    assert.equal(isStaleHead({ runSha, currentHeadSha }), true, `${runSha} / ${currentHeadSha}`);
+  }
+  assert.equal(isStaleHead(), true);
+});
+
+// CIR-42·L1: 이번 실행 SHA는 GitHub가 넣어 주는 이벤트 파일(GITHUB_EVENT_PATH)의 pull_request.head.sha에서 읽는다.
+// 워크플로 env로 넘기면 ai-review.yml을 고쳐야 하고, 고친 PR에서는 Claude가 실행되지 않는다.
+test('CIR-42·L1 이벤트 JSON의 pull_request.head.sha를 실행 SHA로 읽는다', () => {
+  assert.equal(runShaFromEvent(JSON.stringify({ pull_request: { head: { sha: SHA } } })), SHA);
+});
+
+test('CIR-42·L1 이벤트 파일이 없거나 깨졌거나 SHA가 없으면 undefined(→ 오래된 실행으로 처리)', () => {
+  for (const text of [undefined, '', '{', 'null', '{}', JSON.stringify({ pull_request: {} }), JSON.stringify({ pull_request: { head: { sha: 42 } } })]) {
+    assert.equal(runShaFromEvent(text), undefined, String(text));
+    assert.equal(isStaleHead({ runSha: runShaFromEvent(text), currentHeadSha: SHA }), true);
+  }
+});
+
+// M2: 복원한 경로의 제어 문자를 지우지 않고 escape로 보여 준다. a<줄바꿈>b.md와 ab.md가 구분돼야 한다.
+test('M2 경로의 줄바꿈·탭은 \\n·\\t로 보여 주고 지우지 않는다', () => {
+  const files = filesFromDiff(String.raw`diff --git "a/a\nb.md" "b/a\nb.md"
+diff --git a/ab.md b/ab.md
+diff --git "a/t\tx.md" "b/t\tx.md"`);
+  assert.deepEqual(files, ['a\nb.md', 'ab.md', 't\tx.md']);
+  const s = buildSummary({ ...pass, reviewedFiles: files });
+  assert.ok(s.includes('`a\\nb.md`'), s);
+  assert.ok(s.includes('`ab.md`'), s);
+  assert.ok(s.includes('`t\\tx.md`'), s);
+  assert.match(s, /검토 범위\(3개 파일\)/);
+});
+
+// M2 보완(CodeRabbit #42): 실제 줄바꿈 경로와 "역슬래시+n" 경로가 같은 표시가 되면 안 된다. 역슬래시를 먼저 \\로 보여 준다.
+test('M2 실제 줄바꿈 경로와 역슬래시+n 경로는 표시가 다르다', () => {
+  const s = buildSummary({ ...pass, reviewedFiles: ['a\nb.md', String.raw`a\nb.md`] });
+  assert.ok(s.includes('- `' + String.raw`a\nb.md` + '`\n'), s); // 실제 줄바꿈 → \n
+  assert.ok(s.includes('- `' + String.raw`a\\nb.md` + '`'), s); // 역슬래시+n → \\n
+});
+
+// M3(CodeRabbit #42): 경로의 백틱을 지우지 않는다. 내용의 가장 긴 백틱 연속보다 긴 구분자로 감싼다(CommonMark 인라인 코드).
+test('M3 백틱이 든 경로는 백틱을 지우지 않고 더 긴 구분자로 감싼다', () => {
+  const s = buildSummary({ ...pass, reviewedFiles: ['a`b.md', 'ab.md', 'x``y.md', '`edge.md'] });
+  assert.ok(s.includes('- ``a`b.md``\n'), s);
+  assert.ok(s.includes('- `ab.md`\n'), s);
+  assert.ok(s.includes('- ```x``y.md```\n'), s);
+  assert.ok(s.includes('- `` `edge.md ``'), s); // 백틱으로 시작·끝나면 앞뒤 공백
+});
+
+// M3 보완(CodeRabbit #42): CommonMark는 코드 스팬 양끝 공백을 한 칸씩 지우므로, 공백으로 시작·끝나는 경로도 앞뒤에 공백을 둔다.
+test('M3 양끝 공백이 있는 경로는 공백 없는 경로와 다르게 보인다', () => {
+  const s = buildSummary({ ...pass, reviewedFiles: [' a ', 'a', 'b '] });
+  assert.ok(s.includes('- `  a  `\n'), s);
+  assert.ok(s.includes('- `a`\n'), s);
+  assert.ok(s.includes('- ` b  `'), s);
 });
