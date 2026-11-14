@@ -14,6 +14,9 @@ export const ALLOWED_TOOLS = ['Read', 'Grep', 'Glob', 'LS', 'mcp__github_inline_
 // G2: init 도구 목록에 있기만 해도 판정 불가가 되는 도구
 const FORBIDDEN_TOOLS = new Set(['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch']);
 const FORBIDDEN_MCP = /commit|push|merge|create_or_update|delete|approve/i;
+// N1: 써도 되는 무해한 보조 도구. ToolSearch는 지연 로딩된 도구의 사용법만 불러온다.
+// --allowedTools(ALLOWED_TOOLS)에는 넣지 않는다 — 권한이 필요 없고, 넣으면 ai-review.yml이 바뀐다.
+const HELPER_TOOLS = ['ToolSearch'];
 
 const unknown = (reason) => ({ verdict: 'UNKNOWN', reason });
 const validNonce = (nonce) => typeof nonce === 'string' && nonce !== '' && nonce === nonce.trim();
@@ -83,7 +86,7 @@ export function checkTools(executionJson, allowed) {
 const SAFE_TOOL_NAME = /^[A-Za-z0-9_.-]{1,100}$/;
 export function forbiddenToolNames(executionJson, allowed) {
   const messages = parseMessages(executionJson) ?? [];
-  const permitted = new Set(Array.isArray(allowed) ? allowed : []);
+  const permitted = new Set([...(Array.isArray(allowed) ? allowed : []), ...HELPER_TOOLS]);
   const isForbidden = (name) =>
     typeof name !== 'string' || FORBIDDEN_TOOLS.has(name) || (name.startsWith('mcp__') && FORBIDDEN_MCP.test(name));
   const hits = [];
