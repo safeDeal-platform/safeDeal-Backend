@@ -1,7 +1,7 @@
 // 요약 댓글 — CIR-05, 06, 10, 11, 13, 14, 15, 23, 24, 26, 32, 34, 36, 39, F1, G2, G4, G6
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SUMMARY_MARKER, buildSummary, filesFromDiff, findSummaryComment, isStaleHead, pickReason } from './summary.mjs';
+import { SUMMARY_MARKER, buildSummary, filesFromDiff, findSummaryComment, isStaleHead, pickReason, runShaFromEvent } from './summary.mjs';
 
 const MARKER = '<!-- ai-review-summary -->';
 const SHA = '0123456789abcdef0123456789abcdef01234567';
@@ -173,4 +173,17 @@ test('CIR-42 어느 쪽이든 없거나 SHA 형식이 아니면 오래된 실행
     assert.equal(isStaleHead({ runSha, currentHeadSha }), true, `${runSha} / ${currentHeadSha}`);
   }
   assert.equal(isStaleHead(), true);
+});
+
+// CIR-42·L1: 이번 실행 SHA는 GitHub가 넣어 주는 이벤트 파일(GITHUB_EVENT_PATH)의 pull_request.head.sha에서 읽는다.
+// 워크플로 env로 넘기면 ai-review.yml을 고쳐야 하고, 고친 PR에서는 Claude가 실행되지 않는다.
+test('CIR-42·L1 이벤트 JSON의 pull_request.head.sha를 실행 SHA로 읽는다', () => {
+  assert.equal(runShaFromEvent(JSON.stringify({ pull_request: { head: { sha: SHA } } })), SHA);
+});
+
+test('CIR-42·L1 이벤트 파일이 없거나 깨졌거나 SHA가 없으면 undefined(→ 오래된 실행으로 처리)', () => {
+  for (const text of [undefined, '', '{', 'null', '{}', JSON.stringify({ pull_request: {} }), JSON.stringify({ pull_request: { head: { sha: 42 } } })]) {
+    assert.equal(runShaFromEvent(text), undefined, String(text));
+    assert.equal(isStaleHead({ runSha: runShaFromEvent(text), currentHeadSha: SHA }), true);
+  }
 });

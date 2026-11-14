@@ -137,6 +137,15 @@
 |---|---|
 | K1 | **Q13 수정:** `ai-review` 룰셋(PR 필수·ai-review 필수·코드 소유자 승인 등)의 대상은 dev와 main만이다. 모든 브랜치로 걸면 작업 브랜치 push와 새 브랜치 생성까지 막힌다(GH013로 실제 확인). 리뷰 실행은 그대로 모든 브랜치로 가는 PR에서 돈다(워크플로에 브랜치 필터 없음) |
 
+## 워크플로 변경 PR 처리 (재민 승인, 2026-11-14 — "Proceed as recommended")
+
+claude-code-action은 PR의 `ai-review.yml`이 기본 브랜치(dev)와 한 글자라도 다르면 Claude를 실행하지 않는다(보안 장치, #42에서 확인). 그래서 워크플로를 바꾸는 PR은 항상 판정 불가가 된다.
+
+| # | 결정 |
+|---|---|
+| L1 | **CIR-42 구현 방식 변경:** 이번 실행 SHA는 워크플로 env(`HEAD_SHA`)가 아니라 GitHub가 넣어 주는 이벤트 파일(`GITHUB_EVENT_PATH`의 `pull_request.head.sha`)에서 읽는다. #42는 `ai-review.yml`을 고치지 않는다. 워크플로 env를 요구하던 테스트는 이벤트 파일 읽기 단위 테스트로 바꾼다(테스트 변경 승인) |
+| L2 | `ai-review.yml`을 바꾸는 PR은 ai-review를 통과할 수 없으므로, `ai-review` 룰셋 Bypass list에 Repository admin(경화)을 "For pull requests only"로 둔다. 우회 머지는 **워크플로 변경 PR에만** 쓰고, 그 PR은 코드 소유자가 직접 꼼꼼히 리뷰한다 |
+
 ## 사람이 할 일 (Claude가 대신하지 않음)
 
 | 누가 | 할 일 |
