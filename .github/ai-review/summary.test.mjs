@@ -216,3 +216,11 @@ test('M3 백틱이 든 경로는 백틱을 지우지 않고 더 긴 구분자로
   assert.ok(s.includes('- ```x``y.md```\n'), s);
   assert.ok(s.includes('- `` `edge.md ``'), s); // 백틱으로 시작·끝나면 앞뒤 공백
 });
+
+// M3 보완(CodeRabbit #42): CommonMark는 코드 스팬 양끝 공백을 한 칸씩 지우므로, 공백으로 시작·끝나는 경로도 앞뒤에 공백을 둔다.
+test('M3 양끝 공백이 있는 경로는 공백 없는 경로와 다르게 보인다', () => {
+  const s = buildSummary({ ...pass, reviewedFiles: [' a ', 'a', 'b '] });
+  assert.ok(s.includes('- `  a  `\n'), s);
+  assert.ok(s.includes('- `a`\n'), s);
+  assert.ok(s.includes('- ` b  `'), s);
+});
