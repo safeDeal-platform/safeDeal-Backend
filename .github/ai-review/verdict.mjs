@@ -75,20 +75,26 @@ export function extractResultText(executionJson) {
 // G2: 쓴 도구(tool_use)는 모두 allowed 안에 있어야 하고, init 도구 목록에 금지 도구가 없어야 한다.
 // 문제 없으면 null. 실행 기록을 읽을 수 없으면 확인할 수 없으므로 판정 불가.
 export function checkTools(executionJson, allowed) {
-  const forbidden = unknown('forbidden_tool');
-  const messages = parseMessages(executionJson);
-  if (!messages) return forbidden;
+  if (!parseMessages(executionJson)) return unknown('forbidden_tool');
+  return forbiddenToolNames(executionJson, allowed).length ? unknown('forbidden_tool') : null;
+}
+
+// M1: 걸린 도구 이름(init의 금지 도구 + 허용 밖 tool_use), 처음 나온 순서·중복 없음. 로그용이라 이상한 이름은 <invalid>.
+const SAFE_TOOL_NAME = /^[A-Za-z0-9_.-]{1,100}$/;
+export function forbiddenToolNames(executionJson, allowed) {
+  const messages = parseMessages(executionJson) ?? [];
   const permitted = new Set(Array.isArray(allowed) ? allowed : []);
   const isForbidden = (name) =>
     typeof name !== 'string' || FORBIDDEN_TOOLS.has(name) || (name.startsWith('mcp__') && FORBIDDEN_MCP.test(name));
+  const hits = [];
   for (const m of messages) {
-    if (m?.type === 'system' && m.subtype === 'init' && Array.isArray(m.tools) && m.tools.some(isForbidden)) return forbidden;
+    if (m?.type === 'system' && m.subtype === 'init' && Array.isArray(m.tools)) hits.push(...m.tools.filter(isForbidden));
     if (m?.type === 'assistant') {
       const content = Array.isArray(m.message?.content) ? m.message.content : [];
-      if (content.some((c) => c?.type === 'tool_use' && !permitted.has(c.name))) return forbidden;
+      hits.push(...content.filter((c) => c?.type === 'tool_use' && !permitted.has(c.name)).map((c) => c.name));
     }
   }
-  return null;
+  return [...new Set(hits.map((n) => (typeof n === 'string' && SAFE_TOOL_NAME.test(n) ? n : '<invalid>')))];
 }
 
 // F2: PASS는 "표식 PASS + P1 정수 0건"일 때만. P1이 1건 이상이면 BLOCK. 그 밖은 판정 불가.
@@ -160,5 +166,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const lines = `verdict=${result.verdict}\nreason=${result.reason}\nfindings=${result.findings ?? ''}\n`;
   process.stdout.write(lines);
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, lines);
+  if (result.reason === 'forbidden_tool') {
+    // M1: 실행 기록은 로그에 안 나오므로 걸린 도구 이름만 남긴다.
+    const names = forbiddenToolNames(readExecutionFile(env.EXECUTION_FILE), ALLOWED_TOOLS);
+    process.stderr.write(`::warning::forbidden_tools=${names.join(',') || '(실행 기록을 읽을 수 없음)'}\n`);
+  }
   process.exit(result.verdict === 'PASS' ? 0 : 1);
 }
