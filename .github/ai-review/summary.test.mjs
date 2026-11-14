@@ -1,7 +1,7 @@
 // 요약 댓글 — CIR-05, 06, 10, 11, 13, 14, 15, 23, 24, 26, 32, 34, 36, 39, F1, G2, G4, G6
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SUMMARY_MARKER, buildSummary, findSummaryComment, pickReason } from './summary.mjs';
+import { SUMMARY_MARKER, buildSummary, filesFromDiff, findSummaryComment, isStaleHead, pickReason } from './summary.mjs';
 
 const MARKER = '<!-- ai-review-summary -->';
 const SHA = '0123456789abcdef0123456789abcdef01234567';
@@ -136,4 +136,41 @@ test('G4 gate 이유가 비면 판정 이유', () => {
 test('G4 둘 다 비면 unknown', () => {
   assert.equal(pickReason({ gateReason: '', verdictReason: '' }), 'unknown');
   assert.equal(pickReason({}), 'unknown');
+});
+
+// CIR-41: git이 C 방식으로 인용한 경로를 실제 경로로 되돌린다.
+test('CIR-41 인용되지 않은 경로는 그대로', () => {
+  assert.deepEqual(filesFromDiff('diff --git a/src/A.java b/src/A.java\n+x'), ['src/A.java']);
+});
+
+// 입력은 git이 실제로 찍는 글자 그대로 쓰려고 String.raw를 쓴다(\355는 역슬래시+숫자 세 글자).
+test('CIR-41 한글 경로(8진수 UTF-8 바이트)를 실제 경로로', () => {
+  assert.deepEqual(filesFromDiff(String.raw`diff --git "a/docs/\355\225\234.md" "b/docs/\355\225\234.md"`), ['docs/한.md']);
+});
+
+test('CIR-41 역슬래시·따옴표·탭 escape를 되돌린다', () => {
+  assert.deepEqual(filesFromDiff(String.raw`diff --git "a/a\\b.txt" "b/a\\b.txt"`), ['a\\b.txt']);
+  assert.deepEqual(filesFromDiff(String.raw`diff --git "a/q\"x.txt" "b/q\"x.txt"`), ['q"x.txt']);
+  assert.deepEqual(filesFromDiff(String.raw`diff --git "a/t\tab.txt" "b/t\tab.txt"`), ['t\tab.txt']);
+});
+
+test('CIR-41 이름이 바뀌어 b쪽만 인용된 경우 b쪽 경로', () => {
+  assert.deepEqual(filesFromDiff(String.raw`diff --git a/old.md "b/\355\225\234.md"`), ['한.md']);
+});
+
+// CIR-42: 요약 댓글을 고치기 전에 PR 현재 head와 이번 실행 SHA를 비교한다. 확인할 수 없으면 오래된 실행으로 본다.
+const OTHER = 'fedcba9876543210fedcba9876543210fedcba98';
+test('CIR-42 현재 head와 실행 SHA가 같으면 최신 실행', () => {
+  assert.equal(isStaleHead({ runSha: SHA, currentHeadSha: SHA }), false);
+});
+
+test('CIR-42 현재 head가 다르면 오래된 실행', () => {
+  assert.equal(isStaleHead({ runSha: SHA, currentHeadSha: OTHER }), true);
+});
+
+test('CIR-42 어느 쪽이든 없거나 SHA 형식이 아니면 오래된 실행으로 본다(fail closed)', () => {
+  for (const [runSha, currentHeadSha] of [[undefined, SHA], [SHA, undefined], ['', SHA], [SHA, ''], ['abc', 'abc'], [SHA.slice(0, 7), SHA]]) {
+    assert.equal(isStaleHead({ runSha, currentHeadSha }), true, `${runSha} / ${currentHeadSha}`);
+  }
+  assert.equal(isStaleHead(), true);
 });

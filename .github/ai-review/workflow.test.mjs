@@ -355,3 +355,11 @@ test('CIR-27 판정을 $GITHUB_STEP_SUMMARY에 남긴다(댓글 실패와 별개
   assert.ok(s, 'run에서 $GITHUB_STEP_SUMMARY에 쓰는 스텝이 있어야 한다');
   assert.ok(runsEvenAfterFailure(s), `if에 always() 또는 !cancelled()가 있어야 한다: ${s.if}`);
 });
+
+// CIR-42: 요약 댓글 스텝은 이번 실행 SHA를 받아 PR 현재 head와 비교한다.
+test('CIR-42 요약 댓글 스텝에 이번 실행의 PR head SHA를 넘긴다', () => {
+  const { wf } = load();
+  const step = steps(wf).find((s) => /summary\.mjs comment\b/.test(String(s.run ?? '')));
+  assert.ok(step, 'summary.mjs comment 스텝이 있어야 한다');
+  assert.equal(expr(step.env?.HEAD_SHA), 'github.event.pull_request.head.sha');
+});
