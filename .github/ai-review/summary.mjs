@@ -48,9 +48,10 @@ export function pickReason({ gateReason, verdictReason } = {}) {
 
 const shortSha = (sha) => (typeof sha === 'string' && /^[0-9a-f]{7,40}$/i.test(sha) ? sha.slice(0, 7) : '알 수 없음');
 // M2: 제어 문자는 지우지 않고 escape로 보여 준다(a<줄바꿈>b.md와 ab.md 구분). 백틱만 지운다(인라인 코드 깨짐 방지).
-const CONTROL_ESCAPES = { '\n': '\\n', '\r': '\\r', '\t': '\\t' };
+// 역슬래시를 먼저 \\로 바꿔야 실제 줄바꿈(\n 표시)과 "역슬래시+n" 글자(\\n 표시)가 구분된다.
+const CONTROL_ESCAPES = { '\\': '\\\\', '\n': '\\n', '\r': '\\r', '\t': '\\t' };
 const showControl = (ch) => CONTROL_ESCAPES[ch] ?? `\\x${ch.charCodeAt(0).toString(16).padStart(2, '0')}`;
-const code = (s) => `\`${String(s).replace(/`/g, '').replace(/[\x00-\x1f\x7f]/g, showControl)}\``;
+const code = (s) => `\`${String(s).replace(/`/g, '').replace(/[\\\x00-\x1f\x7f]/g, showControl)}\``;
 const isCount = (n) => Number.isInteger(n) && n >= 0;
 
 export function buildSummary({ verdict, reason, sha, reviewedFiles, findingCount, resolved } = {}) {
