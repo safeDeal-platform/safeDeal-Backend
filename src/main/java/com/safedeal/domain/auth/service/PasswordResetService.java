@@ -17,6 +17,7 @@ import com.safedeal.global.util.SecureToken;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -52,23 +53,22 @@ public class PasswordResetService {
      * 이메일은 들어오자마자 정규화한다(trim+소문자) — 레이트리밋 키와 계정 조회가 같은 문자열을
      * 봐야, 대소문자만 바꿔 한도를 우회하는 공격이 안 통한다(D-17, 악센트 변형은 D-18로 남김).
      */
-    @Transactional
+    // READ COMMITTED — 기본(REPEATABLE READ)에서는 0행인 markAllUsedByUserId도 인덱스 틈(gap)을 잠가,
+    // 토큰 없는 두 유저가 동시에 요청하면 서로의 INSERT를 막아 교착한다. 같은 유저끼리는 아래 유저 행 잠금이 직렬화한다.
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void requestReset(String email, String clientIp) {
         String normalizedEmail = EmailNormalizer.normalize(email);
         // 계정을 보기 전에 먼저 센다 — 존재하는 주소만 센다면 429 여부로 가입 여부가 드러난다.
         if (!mailSendRateLimiter.allowPasswordResetRequest(JwtTokenProvider.hash(normalizedEmail), clientIp)) {
             throw new BusinessException(AuthErrorCode.TOO_MANY_MAIL_REQUESTS);
         }
-        // 존재 확인은 잠금 없이 한다 — email(UNIQUE 보조 인덱스)로 바로 잠그면, 가입 안 한
-        // 이메일로 매번 호출되는 이 분기에서 InnoDB가 그 갭에 gap lock을 걸어 같은 이메일로
-        // 들어오는 회원가입 INSERT를 블록할 수 있다(CodeRabbit·L1 리뷰 지적, PR #40).
+        // 존재 확인은 잠금 없이 하고, 있을 때만 id(PK)로 잠근다 — 가입 안 한 이메일로도 매번
+        // 불리는 분기라 잠금은 실제 계정 행에만 건다.
         Optional<User> found = userRepository.findByEmailAndDeletedAtIsNull(normalizedEmail);
         if (found.isEmpty()) {
             return;
         }
-        // 존재가 확인된 뒤에만 id(클러스터 PK)로 다시 잠가 조회한다 — PK 조회는 행이 있으면
-        // 레코드 잠금만 걸려 gap lock 문제가 없다. 이 잠금이 아래 소진·발급 전체를 직렬화해,
-        // 같은 유저가 동시에 두 번 요청해도 "최신 링크 1개" 보장이 깨지지 않게 한다.
+        // 이 잠금이 아래 소진·발급 전체를 직렬화해, 같은 유저의 동시 요청에도 "최신 링크 1개"를 지킨다.
         User user = userRepository.findForPasswordResetUpdate(found.get().getId()).orElse(null);
         if (user == null) {
             return;
@@ -108,7 +108,11 @@ public class PasswordResetService {
                 .filter(candidate -> candidate.isUsable(now))
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN));
 
-        User user = userRepository.findByIdAndDeletedAtIsNull(token.getUserId())
+        // bcrypt는 느려서 유저 행을 잠그기 전에 계산한다.
+        String encoded = passwordEncoder.encode(newPassword);
+
+        // requestReset과 같은 순서(유저 행 → 토큰)로 잠가, 서로 상대 잠금을 기다리는 교착을 막는다.
+        User user = userRepository.findForPasswordResetUpdate(token.getUserId())
                 .filter(User::hasPassword)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN));
 
@@ -116,7 +120,7 @@ public class PasswordResetService {
         if (tokenRepository.markUsed(token.getId(), now) != 1) {
             throw new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN);
         }
-        user.changePassword(passwordEncoder.encode(newPassword));
+        user.changePassword(encoded);
         refreshTokenStore.revokeAll(user.getId());
     }
 }

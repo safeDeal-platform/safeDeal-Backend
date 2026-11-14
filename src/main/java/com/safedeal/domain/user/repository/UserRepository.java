@@ -41,17 +41,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findForTrustScoreUpdate(@Param("id") Long id);
 
     /**
-     * 비밀번호 재설정 발급용 — 행을 잠그고 읽는다. 같은 유저가 동시에 두 번 재설정을
-     * 요청하면 둘 다 "옛 토큰 없음"으로 보고 각자 새 토큰을 만들 수 있다(D-15가 막으려는
-     * "최신 링크 1개" 보장이 깨짐) — 소진·발급 전체를 이 잠금으로 직렬화해 막는다.
-     *
-     * <b>id로 잠그는 이유(email이 아니라)</b>: email은 UNIQUE 보조 인덱스인데, 존재하지
-     * 않는 email로 PESSIMISTIC_WRITE 조회를 하면 InnoDB가 그 갭에 gap lock을 건다(REPEATABLE
-     * READ 기본 격리수준, phantom 방지). 재설정은 "계정 존재 여부와 무관 동일 응답" 정책상
-     * 가입 안 한 이메일로도 매번 호출되므로, 그 순간 같은 이메일로 들어오는 회원가입 INSERT를
-     * 커밋까지 블록해 회원가입이 멈추거나 교착될 수 있었다(CodeRabbit·L1 리뷰 지적, PR #40).
-     * 그래서 호출 쪾에서 먼저 비잠금 조회로 존재를 확인한 뒤, 존재할 때만 id(클러스터 PK)로
-     * 다시 잠가 조회한다 — PK 조회는 행이 있으면 레코드 잠금만 걸리고 갭락이 생기지 않는다.
+     * 비밀번호 재설정 발급·사용 공용 — 행을 잠그고 읽는다. 같은 유저의 동시 발급이 각자 새 토큰을
+     * 만들어 "최신 링크 1개"(D-15)가 깨지는 것을 막고, 발급·사용 두 경로가 모두 이 잠금을 먼저 잡아
+     * 잠금 순서(유저 행 → 토큰)를 맞춘다. 행이 있을 때 레코드 잠금만 걸리도록 email이 아니라 id(PK)로 잠근다.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :id and u.deletedAt is null")
