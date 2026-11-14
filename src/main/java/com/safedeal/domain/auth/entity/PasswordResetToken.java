@@ -53,7 +53,6 @@ public class PasswordResetToken extends MutableEntity {
         return new PasswordResetToken(userId, tokenHash, expiresAt);
     }
 
-    // 리뷰 봇 동작 확인용 임시 주석 — 확인 후 삭제한다.
     public boolean isUsable(Instant now) {
         return usedAt == null && now.isBefore(expiresAt);
     }
