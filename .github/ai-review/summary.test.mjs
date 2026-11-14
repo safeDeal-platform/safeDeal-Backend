@@ -200,3 +200,10 @@ diff --git "a/t\tx.md" "b/t\tx.md"`);
   assert.ok(s.includes('`t\\tx.md`'), s);
   assert.match(s, /검토 범위\(3개 파일\)/);
 });
+
+// M2 보완(CodeRabbit #42): 실제 줄바꿈 경로와 "역슬래시+n" 경로가 같은 표시가 되면 안 된다. 역슬래시를 먼저 \\로 보여 준다.
+test('M2 실제 줄바꿈 경로와 역슬래시+n 경로는 표시가 다르다', () => {
+  const s = buildSummary({ ...pass, reviewedFiles: ['a\nb.md', String.raw`a\nb.md`] });
+  assert.ok(s.includes('- `' + String.raw`a\nb.md` + '`\n'), s); // 실제 줄바꿈 → \n
+  assert.ok(s.includes('- `' + String.raw`a\\nb.md` + '`'), s); // 역슬래시+n → \\n
+});
