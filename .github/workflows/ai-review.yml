@@ -160,5 +160,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          # CIR-42: PR 현재 head와 비교할 이번 실행 SHA
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BODY_FILE: ${{ runner.temp }}/ai-review-summary.md
         run: node .github/ai-review/summary.mjs comment
