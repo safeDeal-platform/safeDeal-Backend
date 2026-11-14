@@ -370,7 +370,7 @@ class AuthAccountRecoveryTest {
         reset(mailSender.tokenFromLastMailTo(email), "new-password-1234").andExpect(status().isOk());
     }
 
-    // ---------- 이메일 정규화 (D-17 — 입력만, 기존 데이터는 그대로 둠) ----------
+    // ---------- 이메일 정규화 (입력만 — 기존 데이터 정리는 D-17로 미룸) ----------
 
     @Test
     @DisplayName("대소문자만 바꿔 재설정을 요청해도 같은 계정으로 취급해 한도를 공유한다")
@@ -399,7 +399,9 @@ class AuthAccountRecoveryTest {
 
         signup(mixedCase, unique("대소문자가입"));
 
-        assertThat(userRepository.findByEmailAndDeletedAtIsNull(normalized)).isPresent();
+        // 조회는 대소문자 무시 콜레이션이라 찾아지는 것만으로는 부족하다 — 저장된 문자열 자체를 비교한다.
+        assertThat(userRepository.findByEmailAndDeletedAtIsNull(normalized).orElseThrow().getEmail())
+                .isEqualTo(normalized);
         assertThat(mailSender.sentTo(normalized)).hasSize(1);
     }
 
