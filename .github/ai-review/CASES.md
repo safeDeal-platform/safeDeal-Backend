@@ -161,6 +161,13 @@ claude-code-action은 PR의 `ai-review.yml`이 기본 브랜치(dev)와 한 글�
 |---|---|
 | N1 | #42 로그 `forbidden_tools=ToolSearch`: Claude가 inline 댓글 도구의 사용법을 불러오려고 ToolSearch를 썼다. ToolSearch는 사용법만 불러오는 무해한 보조 도구이므로 verdict.mjs에서 따로 허용한다(`HELPER_TOOLS`). `--allowedTools`·`ALLOWED_TOOLS`에는 넣지 않는다(권한이 필요 없고, 넣으면 ai-review.yml이 바뀌어 L2 우회가 필요). ToolSearch로 불러온 다른 도구를 쓰면 여전히 판정 불가 |
 
+## 요약 경로 표시 보완 (CodeRabbit #42, 2026-11-15)
+
+| # | 결정 |
+|---|---|
+| M3 | 경로의 백틱을 지우지 않는다. 내용의 가장 긴 백틱 연속보다 한 개 긴 구분자로 감싸고, 백틱으로 시작·끝나면 앞뒤에 공백을 둔다(M2의 "서로 다른 경로는 다르게 보인다"를 따름) |
+| M4 | **보류:** 인용되지 않은 경로 안의 ` b/`(예: `foo b/bar`)는 `diff --git` 헤더만으로 경계를 정할 수 없다. 이 레포에 그런 이름이 없고 요약 표시는 판정에 영향이 없어 지금은 고치지 않는다. 고치려면 `+++ b/`·`rename to` 줄을 읽거나 워크플로에서 `--name-only -z` 목록을 따로 만들어야 한다(후자는 ai-review.yml 변경 → L2) |
+
 ## 사람이 할 일 (Claude가 대신하지 않음)
 
 | 누가 | 할 일 |

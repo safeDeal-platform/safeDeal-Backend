@@ -207,3 +207,12 @@ test('M2 실제 줄바꿈 경로와 역슬래시+n 경로는 표시가 다르다
   assert.ok(s.includes('- `' + String.raw`a\nb.md` + '`\n'), s); // 실제 줄바꿈 → \n
   assert.ok(s.includes('- `' + String.raw`a\\nb.md` + '`'), s); // 역슬래시+n → \\n
 });
+
+// M3(CodeRabbit #42): 경로의 백틱을 지우지 않는다. 내용의 가장 긴 백틱 연속보다 긴 구분자로 감싼다(CommonMark 인라인 코드).
+test('M3 백틱이 든 경로는 백틱을 지우지 않고 더 긴 구분자로 감싼다', () => {
+  const s = buildSummary({ ...pass, reviewedFiles: ['a`b.md', 'ab.md', 'x``y.md', '`edge.md'] });
+  assert.ok(s.includes('- ``a`b.md``\n'), s);
+  assert.ok(s.includes('- `ab.md`\n'), s);
+  assert.ok(s.includes('- ```x``y.md```\n'), s);
+  assert.ok(s.includes('- `` `edge.md ``'), s); // 백틱으로 시작·끝나면 앞뒤 공백
+});
