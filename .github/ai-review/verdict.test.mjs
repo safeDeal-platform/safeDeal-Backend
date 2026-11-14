@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  ALLOWED_TOOLS, checkTools, classifyFailure, conclusionOf, extractResultText, finalVerdict, parseCounts, parseVerdict,
+  ALLOWED_TOOLS, checkTools, forbiddenToolNames, classifyFailure, conclusionOf, extractResultText, finalVerdict, parseCounts, parseVerdict,
 } from './verdict.mjs';
 
 const N = 'a1b2c3d4';
@@ -301,7 +301,7 @@ function conclude(messages, env = {}) {
     env: { PATH: process.env.PATH, NONCE: N, EXECUTION_FILE: file, ...env },
     encoding: 'utf8',
   });
-  return { status: r.status, out: r.stdout };
+  return { status: r.status, out: r.stdout, err: r.stderr };
 }
 const okRun = (...lines) => [init(['Read', INLINE]), use('Read'), result(lines.join('\n'))];
 
@@ -361,4 +361,27 @@ test('CIR-27 GITHUB_OUTPUT이 있으면 같은 판정 줄을 덧붙인다', () =
   writeFileSync(output, '');
   conclude(okRun(`P1[${N}]: 0`, `P2[${N}]: 0`, `VERDICT[${N}]: PASS`), { GITHUB_OUTPUT: output });
   assert.match(readFileSync(output, 'utf8'), /^verdict=PASS$/m);
+});
+
+// M1: forbidden_tool일 때 어떤 도구가 걸렸는지 이름만 로그에 남긴다(실행 기록은 보안상 로그에 안 나온다).
+test('M1 걸린 도구 이름: init의 금지 도구와 허용 밖 tool_use를 처음 나온 순서로, 중복 없이', () => {
+  const json = execution(init(['Read', 'Bash', INLINE]), use('ToolSearch'), use('ToolSearch'), use('Read'), result('끝'));
+  assert.deepEqual(forbiddenToolNames(json, ALLOWED_TOOLS_FIXTURE), ['Bash', 'ToolSearch']);
+});
+
+test('M1 허용 도구만 썼으면 빈 목록, 실행 기록이 깨졌으면 빈 목록', () => {
+  assert.deepEqual(forbiddenToolNames(execution(init(['Read', INLINE]), use('Read'), result('끝')), ALLOWED_TOOLS_FIXTURE), []);
+  assert.deepEqual(forbiddenToolNames('{not json', ALLOWED_TOOLS_FIXTURE), []);
+});
+
+test('M1 이름이 문자열이 아니거나 이상한 글자가 있으면 <invalid>로 적는다(로그 주입 방지)', () => {
+  const json = execution(init(['Read']), use(42), use('Bad\nName'), use('a'.repeat(101)), result('끝'));
+  assert.deepEqual(forbiddenToolNames(json, ALLOWED_TOOLS_FIXTURE), ['<invalid>']);
+});
+
+test('M1 CLI는 forbidden_tool일 때 걸린 도구 이름을 stderr에 남기고, 판정 출력 줄은 그대로', () => {
+  const r = conclude([init(['Read', 'Bash']), use('ToolSearch'), result(`P1[${N}]: 0\nP2[${N}]: 0\nVERDICT[${N}]: PASS`)]);
+  assert.match(r.err, /forbidden_tools=Bash,ToolSearch/);
+  assert.match(r.out, /^reason=forbidden_tool$/m);
+  assert.doesNotMatch(r.out, /forbidden_tools=/);
 });

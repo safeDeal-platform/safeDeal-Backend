@@ -187,3 +187,16 @@ test('CIR-42·L1 이벤트 파일이 없거나 깨졌거나 SHA가 없으면 und
     assert.equal(isStaleHead({ runSha: runShaFromEvent(text), currentHeadSha: SHA }), true);
   }
 });
+
+// M2: 복원한 경로의 제어 문자를 지우지 않고 escape로 보여 준다. a<줄바꿈>b.md와 ab.md가 구분돼야 한다.
+test('M2 경로의 줄바꿈·탭은 \\n·\\t로 보여 주고 지우지 않는다', () => {
+  const files = filesFromDiff(String.raw`diff --git "a/a\nb.md" "b/a\nb.md"
+diff --git a/ab.md b/ab.md
+diff --git "a/t\tx.md" "b/t\tx.md"`);
+  assert.deepEqual(files, ['a\nb.md', 'ab.md', 't\tx.md']);
+  const s = buildSummary({ ...pass, reviewedFiles: files });
+  assert.ok(s.includes('`a\\nb.md`'), s);
+  assert.ok(s.includes('`ab.md`'), s);
+  assert.ok(s.includes('`t\\tx.md`'), s);
+  assert.match(s, /검토 범위\(3개 파일\)/);
+});
