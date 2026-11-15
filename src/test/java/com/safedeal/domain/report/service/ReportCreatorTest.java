@@ -644,6 +644,29 @@ class ReportCreatorTest {
     }
 
     @Test
+    @DisplayName("RPT-C52 부활의 한도 날짜·접수 시각은 잠금을 얻은 뒤의 시각이다 - 대기 중 자정을 넘겨도 새 날짜로 센다")
+    void revivalUsesTimeAfterLockIsAcquired() {
+        Report existing = givenExisting(ReportStatus.CANCELLED);
+        Instant[] lockAcquiredAt = new Instant[1];
+        when(reportRepository.refreshForUpdate(any(Report.class))).thenAnswer(invocation -> {
+            Thread.sleep(5); // 잠금 대기를 흉내 낸다
+            lockAcquiredAt[0] = Instant.now();
+            return existing;
+        });
+        when(reportRepository.reviveCancelled(any(), any(), any(), any())).thenReturn(1);
+
+        ReportCreateResponse response = reportCreator.receive(REPORTER, listingRequest(ReportReason.FRAUD, null));
+
+        ArgumentCaptor<Instant> limitAt = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<Instant> revivedAt = ArgumentCaptor.forClass(Instant.class);
+        verify(dailyLimiter).tryAcquire(eq(REPORTER), limitAt.capture());
+        verify(reportRepository).reviveCancelled(eq(EXISTING_REPORT_ID), any(), any(), revivedAt.capture());
+        assertThat(limitAt.getValue()).isAfterOrEqualTo(lockAcquiredAt[0]);
+        assertThat(revivedAt.getValue()).isEqualTo(limitAt.getValue());
+        assertThat(response.receivedAt()).isEqualTo(limitAt.getValue());
+    }
+
+    @Test
     @DisplayName("RPT-C38 잠금 재조회에서 다른 요청이 이미 되살린 것(RECEIVED)이 보이면 409(RPT001) - UPDATE·한도 차감 없음")
     void revivedByOtherRequestIsDuplicate() {
         givenExisting(ReportStatus.CANCELLED);
