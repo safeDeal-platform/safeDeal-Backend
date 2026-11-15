@@ -24,6 +24,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -36,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -51,7 +53,7 @@ class PasswordResetServiceTest extends IntegrationTestSupport {
     @Autowired PasswordResetService passwordResetService;
     @MockitoSpyBean PasswordResetTokenRepository passwordResetTokenRepository;
     @MockitoSpyBean UserRepository userRepository;
-    @Autowired PasswordEncoder passwordEncoder;
+    @MockitoSpyBean PasswordEncoder passwordEncoder;
     @Autowired RecordingMailSender mailSender;
     @Autowired StringRedisTemplate redisTemplate;
     @Autowired JdbcTemplate jdbc;
@@ -160,29 +162,53 @@ class PasswordResetServiceTest extends IntegrationTestSupport {
     @DisplayName("첫 검사 때 유효했던 링크가 유저 행 잠금을 기다리는 사이 만료되면 비밀번호를 바꾸지 않는다")
     void tokenExpiringWhileWaitingForLockIsRejected() throws Exception {
         String raw = SecureToken.generate();
-        Instant expiresAt = Instant.now().plusMillis(1500);
-        passwordResetTokenRepository.save(PasswordResetToken.issue(user.getId(), JwtTokenProvider.hash(raw), expiresAt));
+        PasswordResetToken token = seedToken(raw);
 
-        // 다른 트랜잭션이 유저 행을 잠근 채 만료 시각이 지날 때까지 붙잡는다.
+        // 실제 시간 대신 순서로 통제한다: 첫 검사(30분짜리라 통과) → bcrypt 끝 신호 → 만료를 "지금"으로 당김 → 잠금 해제.
         CountDownLatch locked = new CountDownLatch(1);
-        ExecutorService holder = Executors.newSingleThreadExecutor();
+        CountDownLatch hashed = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            Object encoded = invocation.callRealMethod();
+            hashed.countDown();
+            return encoded;
+        }).when(passwordEncoder).encode("newPassword1");
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
-            Future<?> hold = holder.submit(() -> tx.executeWithoutResult(status -> {
+            Future<?> hold = pool.submit(() -> tx.executeWithoutResult(status -> {
                 jdbc.queryForObject("select id from users where id = ? for update", Long.class, user.getId());
                 locked.countDown();
                 try {
-                    Thread.sleep(Math.max(0, Duration.between(Instant.now(), expiresAt).toMillis() + 300));
+                    release.await(10, TimeUnit.SECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
             }));
             assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
 
-            assertThatThrownBy(() -> passwordResetService.resetPassword(raw, "newPassword1"))
-                    .matches(PasswordResetServiceTest::isInvalidResetToken);
+            Future<Throwable> reset = pool.submit(() -> {
+                try {
+                    passwordResetService.resetPassword(raw, "newPassword1");
+                    return null;
+                } catch (Throwable t) {
+                    return t;
+                }
+            });
+            assertThat(hashed.await(10, TimeUnit.SECONDS)).isTrue();
+
+            // 만료 시각을 첫 검사 뒤·소진 전인 "1ms 전"으로 당긴다. 저장값 기준 상대 이동이라 시간대 변환이 끼지 않는다.
+            // 1ms 여유는 소진 시각과 같은 눈금에 겹치지 않게 하는 것 — 더 당기면 첫 검사(bcrypt 전) 앞으로 넘어가 회귀를 못 잡는다.
+            long micros = ChronoUnit.MICROS.between(Instant.now(), token.getExpiresAt()) + 1_000;
+            jdbc.update("update password_reset_tokens set expires_at = expires_at - interval ? microsecond where id = ?",
+                    micros, token.getId());
+            release.countDown();
+
+            assertThat(reset.get(10, TimeUnit.SECONDS)).matches(PasswordResetServiceTest::isInvalidResetToken);
             hold.get(10, TimeUnit.SECONDS);
         } finally {
-            holder.shutdownNow();
+            release.countDown();
+            pool.shutdownNow();
         }
 
         assertThat(passwordEncoder.matches(OLD_PASSWORD, storedPasswordHash())).isTrue();
