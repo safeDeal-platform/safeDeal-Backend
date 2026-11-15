@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -164,11 +165,15 @@ class PasswordResetServiceTest extends IntegrationTestSupport {
         String raw = SecureToken.generate();
         PasswordResetToken token = seedToken(raw);
 
-        // 실제 시간 대신 순서로 통제한다: 첫 검사(30분짜리라 통과) → bcrypt 끝 신호 → 만료를 "지금"으로 당김 → 잠금 해제.
+        // 실제 시간 대신 순서로 통제한다: 첫 검사(30분짜리라 통과) → bcrypt 시작 시각 기록 → bcrypt 끝 신호
+        // → 만료를 "bcrypt 시작 + 1ms"로 당김 → 시계가 그 뒤로 넘어간 다음 잠금 해제 → 소진.
+        // 재설정이 잠금 앞에서 실제로 기다렸는지는 상관없다 — 소진은 잠금 해제 뒤, 즉 만료를 당긴 뒤에만 일어난다.
         CountDownLatch locked = new CountDownLatch(1);
         CountDownLatch hashed = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
+        AtomicReference<Instant> hashStartedAt = new AtomicReference<>();
         doAnswer(invocation -> {
+            hashStartedAt.set(Instant.now());
             Object encoded = invocation.callRealMethod();
             hashed.countDown();
             return encoded;
@@ -197,11 +202,17 @@ class PasswordResetServiceTest extends IntegrationTestSupport {
             });
             assertThat(hashed.await(10, TimeUnit.SECONDS)).isTrue();
 
-            // 만료 시각을 첫 검사 뒤·소진 전인 "1ms 전"으로 당긴다. 저장값 기준 상대 이동이라 시간대 변환이 끼지 않는다.
-            // 1ms 여유는 소진 시각과 같은 눈금에 겹치지 않게 하는 것 — 더 당기면 첫 검사(bcrypt 전) 앞으로 넘어가 회귀를 못 잡는다.
-            long micros = ChronoUnit.MICROS.between(Instant.now(), token.getExpiresAt()) + 1_000;
+            // 첫 검사 시각 <= bcrypt 시작 시각이라, 새 만료(bcrypt 시작 + 1ms)는 첫 검사보다 반드시 1ms 이상 뒤다.
+            // 저장값 기준 상대 이동이라 시간대 변환이 끼지 않는다.
+            Instant newExpiresAt = hashStartedAt.get().plusMillis(1);
+            long micros = ChronoUnit.MICROS.between(newExpiresAt, token.getExpiresAt());
             jdbc.update("update password_reset_tokens set expires_at = expires_at - interval ? microsecond where id = ?",
                     micros, token.getId());
+            // 소진 시각이 새 만료보다 반드시 1ms 이상 뒤가 되도록, 시계가 그 지점을 지난 뒤에 잠금을 푼다(길어야 수 ms).
+            Instant releaseAfter = newExpiresAt.plusMillis(1);
+            while (!Instant.now().isAfter(releaseAfter)) {
+                Thread.onSpinWait();
+            }
             release.countDown();
 
             assertThat(reset.get(10, TimeUnit.SECONDS)).matches(PasswordResetServiceTest::isInvalidResetToken);
