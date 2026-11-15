@@ -9,12 +9,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ReportStatusTest {
 
     @Test
-    @DisplayName("접수된 신고는 검토·처리·기각·취소로 갈 수 있다")
-    void receivedCanGoToEveryNextStep() {
+    @DisplayName("RPT-F1 접수된 신고는 검토 또는 취소로만 간다 - 처리·기각은 반드시 검토 중을 거친다")
+    void receivedGoesOnlyToReviewingOrCancelled() {
         assertThat(ReportStatus.RECEIVED.canTransitionTo(ReportStatus.REVIEWING)).isTrue();
-        assertThat(ReportStatus.RECEIVED.canTransitionTo(ReportStatus.RESOLVED)).isTrue();
-        assertThat(ReportStatus.RECEIVED.canTransitionTo(ReportStatus.REJECTED)).isTrue();
         assertThat(ReportStatus.RECEIVED.canTransitionTo(ReportStatus.CANCELLED)).isTrue();
+        assertThat(ReportStatus.RECEIVED.canTransitionTo(ReportStatus.RESOLVED)).isFalse();
+        assertThat(ReportStatus.RECEIVED.canTransitionTo(ReportStatus.REJECTED)).isFalse();
     }
 
     @Test
