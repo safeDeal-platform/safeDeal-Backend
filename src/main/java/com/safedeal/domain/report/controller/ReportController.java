@@ -1,13 +1,20 @@
 package com.safedeal.domain.report.controller;
 
+import com.safedeal.domain.report.dto.ReportCreateRequest;
+import com.safedeal.domain.report.dto.ReportCreateResponse;
 import com.safedeal.domain.report.service.ReportCommandService;
 import com.safedeal.global.response.ApiResponse;
 import com.safedeal.global.security.AuthenticatedUser;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -20,6 +27,18 @@ import org.springframework.web.bind.annotation.RestController;
 public class ReportController {
 
     private final ReportCommandService reportCommandService;
+
+    /**
+     * 신고 접수. 새 신고와 취소 신고 부활 모두 201, 같은 응답이다(Q1). {@code detail}은 다듬지 않고 그대로 넘긴다 —
+     * 공백뿐인 값의 null 변환은 엔티티 몫이다(Q6·D4).
+     */
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<ReportCreateResponse> receive(
+            @AuthenticationPrincipal AuthenticatedUser user,
+            @Valid @RequestBody ReportCreateRequest request) {
+        return ApiResponse.success(reportCommandService.receive(user.userId(), request));
+    }
 
     /**
      * 신고 취소. 본문이 없고 서버가 상태만 바꾸므로 PATCH다({@code NotificationController.markAsRead}와

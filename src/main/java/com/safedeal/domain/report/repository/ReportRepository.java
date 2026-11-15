@@ -47,4 +47,21 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
             + "and r.status = com.safedeal.domain.report.entity.ReportStatus.RECEIVED")
     int cancelByReporter(@Param("id") Long id, @Param("reporterId") Long reporterId,
                          @Param("now") Instant now);
+
+    /**
+     * 같은 사유의 재신고: 취소(CANCELLED)된 행일 때만 접수(RECEIVED)로 되살린다. 상세·증거는 요청 값으로
+     * 덮어쓰고(null이면 null, Q8), 큐 정렬 기준인 {@code received_at}을 새로 찍는다. {@code created_at}과
+     * 공개 id는 그대로다.
+     *
+     * <p>영향 행이 0이면 그사이 다른 요청이 먼저 되살렸거나 상태가 바뀐 것이다(RPT001로 응답한다).
+     * 벌크 UPDATE라 {@code updated_at}을 직접 채우고, {@link #cancelByReporter}와 같은 이유로 컨텍스트를 비운다.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Report r set r.status = com.safedeal.domain.report.entity.ReportStatus.RECEIVED, "
+            + "r.detail = :detail, r.evidenceMessageId = :evidenceMessageId, "
+            + "r.receivedAt = :now, r.updatedAt = :now "
+            + "where r.id = :id "
+            + "and r.status = com.safedeal.domain.report.entity.ReportStatus.CANCELLED")
+    int reviveCancelled(@Param("id") Long id, @Param("detail") String detail,
+                        @Param("evidenceMessageId") Long evidenceMessageId, @Param("now") Instant now);
 }

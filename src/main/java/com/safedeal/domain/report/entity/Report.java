@@ -145,11 +145,20 @@ public class Report extends MutableEntity {
         if (targetType == ReportTargetType.CHAT && evidenceMessageId == null) {
             throw new BusinessException(ReportErrorCode.INVALID_EVIDENCE_MESSAGE);
         }
+        // Q5: 매물 신고에는 증거 메시지가 없다. 조용히 버리면 클라이언트 버그가 숨으므로 400으로 거절한다.
+        if (targetType == ReportTargetType.LISTING && evidenceMessageId != null) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT, "매물 신고에는 증거 메시지를 지정할 수 없습니다.");
+        }
         // RPT-F3: 컬럼 길이(1,000)를 넘기면 INSERT에서 터져 500이 되므로 여기서 400으로 막는다.
         if (detail != null && detail.length() > DETAIL_MAX_LENGTH) {
             throw new BusinessException(CommonErrorCode.INVALID_INPUT, "신고 상세 내용은 1,000자 이하여야 합니다.");
         }
         return new Report(publicId, reporterId, targetType, targetId, targetPublicId,
-                accusedUserId, reasonCode, detail, evidenceMessageId, now);
+                accusedUserId, reasonCode, normalizeDetail(detail), evidenceMessageId, now);
+    }
+
+    /** Q6·D4: 공백뿐이면 null, 글자가 있으면 원문 그대로(strip하지 않는다). 길이 검사는 이 변환 전 원문 기준이다. */
+    private static String normalizeDetail(String detail) {
+        return detail == null || detail.isBlank() ? null : detail;
     }
 }

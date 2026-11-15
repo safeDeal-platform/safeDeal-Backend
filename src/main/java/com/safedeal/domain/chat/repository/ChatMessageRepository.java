@@ -17,4 +17,10 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> 
      * "다른 방 메시지"를 400으로 잡을 수 있다.
      */
     boolean existsByIdAndRoomId(Long id, Long roomId);
+
+    /**
+     * 신고 증거 메시지 검증 — 이 방 소속이면서 이 사람이 보낸 메시지인지를 쿼리 하나로 본다.
+     * 신고자 본인 메시지·다른 방 메시지·없는 id가 모두 false라 서비스는 RPT005 하나로 거절한다.
+     */
+    boolean existsByIdAndRoomIdAndSenderId(Long id, Long roomId, Long senderId);
 }
