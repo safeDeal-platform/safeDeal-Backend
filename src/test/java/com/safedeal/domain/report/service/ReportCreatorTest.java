@@ -644,7 +644,7 @@ class ReportCreatorTest {
     }
 
     @Test
-    @DisplayName("RPT-C52 부활의 한도 날짜·접수 시각은 잠금을 얻은 뒤의 시각이다 - 대기 중 자정을 넘겨도 새 날짜로 센다")
+    @DisplayName("RPT-C52 부활의 한도 차감·저장·응답 시각은 잠금을 얻은 뒤의 같은 시각이다")
     void revivalUsesTimeAfterLockIsAcquired() {
         Report existing = givenExisting(ReportStatus.CANCELLED);
         Instant[] lockAcquiredAt = new Instant[1];

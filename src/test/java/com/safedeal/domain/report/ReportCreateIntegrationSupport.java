@@ -145,6 +145,8 @@ public abstract class ReportCreateIntegrationSupport extends IntegrationTestSupp
             return outcomes;
         } finally {
             pool.shutdownNow();
+            // 인터럽트를 무시하고 도는 DB 작업이 정리(cleanUp) 뒤에 커밋하지 않도록 끝날 때까지 기다린다.
+            pool.awaitTermination(10, TimeUnit.SECONDS);
         }
     }
 }
