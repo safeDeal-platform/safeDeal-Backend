@@ -16,14 +16,28 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.doAnswer;
 
 /**
@@ -102,6 +116,75 @@ class ReportCreateConcurrencyTest extends ReportCreateIntegrationSupport {
                 .satisfies(o -> assertThat(((ReportCreateResponse) o).reportId()).isEqualTo(reportId));
         assertThat(reportRepository.findAll()).singleElement()
                 .satisfies(r -> assertThat(r.getStatus()).isEqualTo(ReportStatus.RECEIVED));
+    }
+
+    /**
+     * 진 쪽이 반드시 "첫 조회는 CANCELLED → 잠금 대기 → 재조회"를 지나가게 순서를 고정한다.
+     * <ol>
+     *   <li>A가 부활을 시작해 행 잠금을 쥔 채 한도 카운터에서 멈춘다(커밋 전).</li>
+     *   <li>그때 B를 출발시킨다. B의 첫 조회(잠금 없음)는 커밋된 값 CANCELLED를 본다.</li>
+     *   <li>B가 잠금 재조회에서 막힌 것을 processlist로 확인한 뒤 A를 풀어 RECEIVED로 커밋시킨다.</li>
+     * </ol>
+     * 그러면 B의 잠금 재조회는 DB에서 RECEIVED를 읽어야 하고, 한도를 쓰기 전에 RPT001로 끝나야 한다(Q2).
+     * 첫 조회로 영속성 컨텍스트에 올라간 옛 객체(CANCELLED)를 그대로 믿으면 한도를 1건 쓰고 UPDATE 0행으로 끝난다.
+     */
+    @Test
+    @DisplayName("RPT-C51 동시 부활에서 진 쪽은 잠금 재조회로 최신 상태(RECEIVED)를 보고, 하루 한도를 쓰기 전에 409(RPT001)로 끝난다 (Q2)")
+    void losingRevivalDoesNotConsumeDailyLimit() throws Exception {
+        cancelledReportId(); // 최초 접수가 한도 1건을 쓴다
+        clearInvocations(dailyLimiter);
+        CountDownLatch aHoldsLock = new CountDownLatch(1);
+        CountDownLatch bIsWaitingForLock = new CountDownLatch(1);
+        AtomicInteger limiterCalls = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (limiterCalls.incrementAndGet() == 1) { // A: 잠금을 쥔 채 B가 잠금 대기에 들어갈 때까지 멈춘다
+                aHoldsLock.countDown();
+                assertThat(bIsWaitingForLock.await(10, TimeUnit.SECONDS)).isTrue();
+            }
+            return invocation.callRealMethod();
+        }).when(dailyLimiter).tryAcquire(any(), any());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<Object> a = pool.submit(() -> outcomeOf(receive(fraud)));
+            assertThat(aHoldsLock.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<Object> b = pool.submit(() -> outcomeOf(receive(fraud)));
+            await().atMost(Duration.ofSeconds(10)).until(this::someoneIsWaitingForReportRowLock);
+            bIsWaitingForLock.countDown();
+
+            assertThat(a.get(30, TimeUnit.SECONDS)).isInstanceOf(ReportCreateResponse.class);
+            assertThat(errorCodeOf(b.get(30, TimeUnit.SECONDS))).isEqualTo(ReportErrorCode.DUPLICATE_ACTIVE_REPORT);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        verify(dailyLimiter, times(1)).tryAcquire(eq(reporter.getId()), any());
+        assertThat(redisTemplate.opsForValue().get(todayLimitKey())).as("최초 접수 1 + 부활 성공 1").isEqualTo("2");
+    }
+
+    private static Object outcomeOf(Callable<?> task) {
+        try {
+            return task.call();
+        } catch (Exception e) {
+            return e;
+        }
+    }
+
+    /**
+     * 다른 연결이 reports 행 잠금 조회(FOR UPDATE)를 실행 중인지. 같은 DB 계정의 스레드는 PROCESS 권한 없이도
+     * processlist에 보인다. 잠금 조회는 막히지 않으면 곧바로 끝나므로, 실행 중으로 보인다는 것은 대기 중이라는 뜻이다.
+     */
+    private boolean someoneIsWaitingForReportRowLock() {
+        Integer waiting = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.PROCESSLIST "
+                        + "WHERE ID <> CONNECTION_ID() AND LOWER(INFO) LIKE '%from reports%for update%'",
+                Integer.class);
+        return waiting != null && waiting > 0;
+    }
+
+    private String todayLimitKey() {
+        String kstDate = LocalDate.now(ZoneId.of("Asia/Seoul")).format(DateTimeFormatter.BASIC_ISO_DATE);
+        return "rate:v1:" + reporter.getId() + ":report:" + kstDate;
     }
 
     /**

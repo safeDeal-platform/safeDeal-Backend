@@ -134,9 +134,9 @@ class ReportCreatorTest {
     /**
      * 같은 신고자·매물·사유(FRAUD)의 기존 신고.
      *
-     * <p>부활 전 잠금 재조회는 새 메서드를 강제하지 않으려고 기존 PESSIMISTIC_WRITE 조회
-     * {@code findByPublicIdAndReporterId}가 같은 행을 돌려주게만 둔다(호출 여부는 검증하지 않는다 —
-     * 잠금이 실제로 직렬화하는지는 {@code ReportCreateConcurrencyTest}가 증명한다).
+     * <p>부활 전 잠금 재조회는 {@code refreshForUpdate}(행 잠금 + DB 값으로 새로 읽기, RPT-C51)가 같은 행을
+     * 돌려주게 둔다. 호출 여부는 검증하지 않는다 — 잠금이 실제로 직렬화하고 옛 값을 쓰지 않는지는
+     * {@code ReportCreateConcurrencyTest}가 실제 DB로 증명한다.
      */
     private Report givenExisting(ReportStatus status) {
         Report existing = existing(status);
@@ -146,9 +146,9 @@ class ReportCreatorTest {
         return existing;
     }
 
+    /** 잠금 재조회 결과. 구현은 {@code refreshForUpdate}의 반환값으로 판정해야 한다. */
     private void givenLockedView(Report report) {
-        when(reportRepository.findByPublicIdAndReporterId(EXISTING_REPORT_PUBLIC_ID, REPORTER))
-                .thenReturn(Optional.of(report));
+        when(reportRepository.refreshForUpdate(any(Report.class))).thenReturn(report);
     }
 
     private static Report existing(ReportStatus status) {
@@ -273,6 +273,16 @@ class ReportCreatorTest {
     @DisplayName("RPT-C06 본인 매물은 신고할 수 없다 - 400(RPT006)")
     void ownListingIsRejected() {
         assertRejected(SELLER, listingRequest(ReportReason.FRAUD, null), ReportErrorCode.SELF_REPORT_NOT_ALLOWED);
+    }
+
+    @Test
+    @DisplayName("RPT-C50 본인의 공개 전(DRAFT·PENDING_VERIFICATION) 매물을 신고하면 404가 아니라 400(RPT006)")
+    void ownUnpublishedListingIsSelfReport() {
+        for (ListingStatus status : new ListingStatus[] {ListingStatus.DRAFT, ListingStatus.PENDING_VERIFICATION}) {
+            givenListing(listing(status));
+
+            assertRejected(SELLER, listingRequest(ReportReason.FRAUD, null), ReportErrorCode.SELF_REPORT_NOT_ALLOWED);
+        }
     }
 
     @Test
