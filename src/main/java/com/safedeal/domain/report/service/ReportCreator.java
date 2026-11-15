@@ -77,12 +77,13 @@ public class ReportCreator {
 
     /**
      * 취소된 신고를 같은 행으로 되살린다(RPT-C34). 첫 조회는 잠금 없는 스냅샷이라, 동시에 되살리는 요청(RPT-C38)이나
-     * 취소(RPT-C39)와 직렬화하려고 행 잠금으로 다시 읽은 뒤 판정한다. 최종 확정은 조건부 UPDATE다.
+     * 취소(RPT-C39)와 직렬화하려고 행 잠금을 걸고 다시 판정한다. 이때 잠금 조회만 하면 영속성 컨텍스트(1차 캐시)에
+     * 남은 첫 조회의 옛 객체가 그대로 돌아오므로, 잠금과 함께 DB 값으로 refresh한 결과로 판정한다 — 진 요청이
+     * 옛 CANCELLED를 믿고 한도를 쓰지 않게 한다(RPT-C51, Q2). 최종 확정은 조건부 UPDATE다.
      */
     private ReportCreateResponse revive(Report existing, Report candidate, Instant now) {
         rejectUnlessCancelled(existing);
-        Report locked = reportRepository.findByPublicIdAndReporterId(existing.getPublicId(), existing.getReporterId())
-                .orElseThrow(() -> new IllegalStateException("신고 행이 사라졌습니다: " + existing.getPublicId()));
+        Report locked = reportRepository.refreshForUpdate(existing);
         rejectUnlessCancelled(locked);
 
         acquireDailyLimit(candidate.getReporterId(), now);

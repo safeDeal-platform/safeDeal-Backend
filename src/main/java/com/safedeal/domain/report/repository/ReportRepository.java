@@ -13,7 +13,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.Optional;
 
-public interface ReportRepository extends JpaRepository<Report, Long> {
+public interface ReportRepository extends JpaRepository<Report, Long>, ReportLockingRepository {
 
     /** 같은 사람·대상·사유의 신고가 있는지(중복 판정·재신고 부활의 기준 행). 조건 순서는 UNIQUE 컬럼 순서와 맞춘다. */
     Optional<Report> findByReporterIdAndTargetTypeAndTargetIdAndReasonCode(
