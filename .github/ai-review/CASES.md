@@ -168,6 +168,13 @@ claude-code-action은 PR의 `ai-review.yml`이 기본 브랜치(dev)와 한 글�
 | M3 | 경로의 백틱을 지우지 않는다. 내용의 가장 긴 백틱 연속보다 한 개 긴 구분자로 감싸고, 백틱이나 공백으로 시작·끝나면 앞뒤에 공백을 둔다(CommonMark가 양끝 공백 한 칸씩을 지우므로, M2의 "서로 다른 경로는 다르게 보인다"를 따름) |
 | M4 | **보류:** 인용되지 않은 경로 안의 ` b/`(예: `foo b/bar`)는 `diff --git` 헤더만으로 경계를 정할 수 없다. 이 레포에 그런 이름이 없고 요약 표시는 판정에 영향이 없어 지금은 고치지 않는다. 고치려면 `+++ b/`·`rename to` 줄을 읽거나 워크플로에서 `--name-only -z` 목록을 따로 만들어야 한다(후자는 ai-review.yml 변경 → L2) |
 
+## 프론트 #9·#10 시범 후 개선 (재민 승인, 2026-11-15 — "Proceed now")
+
+| # | 결정 |
+|---|---|
+| O1 | 인증 실패 문구를 실측값으로 바꾼다(CIR-24·기타 "시범에서 실제 출력으로 교체"). 실측: `Failed to authenticate. API Error: 401 …`, 토큰에 줄바꿈이 있으면 `Invalid auth token · Fix external auth token …`(api_error_status 없음). result의 `api_error_status`가 401·403이면 문구와 상관없이 auth_failed |
+| O2 | inline 댓글 줄 번호는 변경분 파일(`.git/ai-review-pr.diff`)의 줄이 아니라 **실제 파일의 줄**(Read로 본 줄)을 쓰고, 같은 지적을 두 번 달지 않도록 프롬프트에 적는다(프론트 #10에서 diff 줄 번호로 잘못 단 뒤 다시 단 중복 관찰). 워크플로 변경이므로 L2 우회 머지 |
+
 ## 사람이 할 일 (Claude가 대신하지 않음)
 
 | 누가 | 할 일 |

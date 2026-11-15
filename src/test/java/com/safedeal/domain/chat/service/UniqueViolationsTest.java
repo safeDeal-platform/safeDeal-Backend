@@ -4,6 +4,7 @@ import com.safedeal.domain.chat.entity.ChatMessage;
 import com.safedeal.domain.chat.entity.ChatRoom;
 import com.safedeal.domain.chat.repository.ChatMessageRepository;
 import com.safedeal.domain.chat.repository.ChatRoomRepository;
+import com.safedeal.global.util.UniqueViolations;
 import com.safedeal.testsupport.IntegrationTestSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
