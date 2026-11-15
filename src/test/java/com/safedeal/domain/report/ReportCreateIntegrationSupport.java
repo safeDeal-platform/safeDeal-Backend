@@ -19,6 +19,7 @@ import com.safedeal.global.exception.ErrorCode;
 import com.safedeal.global.util.PublicIdGenerator;
 import com.safedeal.testsupport.IntegrationTestSupport;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -57,6 +58,11 @@ public abstract class ReportCreateIntegrationSupport extends IntegrationTestSupp
 
     private final List<Long> createdUserIds = new ArrayList<>();
 
+    /**
+     * 테스트 전후로 지운다. 시작 전에도 지우는 이유: 앞 테스트가 실패하며 남긴 스레드가 정리 뒤에 늦게 커밋해도
+     * 다음 테스트는 깨끗한 상태로 시작한다({@link #runConcurrently}가 종료를 끝까지 보장하지는 못한다).
+     */
+    @BeforeEach
     @AfterEach
     void cleanUp() {
         reportRepository.deleteAllInBatch();
