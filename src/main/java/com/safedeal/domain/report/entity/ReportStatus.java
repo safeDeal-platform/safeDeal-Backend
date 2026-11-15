@@ -36,7 +36,8 @@ public enum ReportStatus {
             new EnumMap<>(ReportStatus.class);
 
     static {
-        ALLOWED.put(RECEIVED, EnumSet.of(REVIEWING, RESOLVED, REJECTED, CANCELLED));
+        // RPT-F1: 처리·기각은 반드시 검토 중(REVIEWING)을 거친다(정책: 접수 → 관리자 검토 → 제재 또는 기각).
+        ALLOWED.put(RECEIVED, EnumSet.of(REVIEWING, CANCELLED));
         ALLOWED.put(REVIEWING, EnumSet.of(RESOLVED, REJECTED));
         ALLOWED.put(CANCELLED, EnumSet.of(RECEIVED));
         ALLOWED.put(RESOLVED, EnumSet.noneOf(ReportStatus.class));

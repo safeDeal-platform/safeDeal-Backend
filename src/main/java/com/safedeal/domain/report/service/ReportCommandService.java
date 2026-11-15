@@ -1,6 +1,7 @@
 package com.safedeal.domain.report.service;
 
 import com.safedeal.domain.report.entity.Report;
+import com.safedeal.domain.report.entity.ReportStatus;
 import com.safedeal.domain.report.repository.ReportRepository;
 import com.safedeal.global.exception.BusinessException;
 import com.safedeal.global.exception.CommonErrorCode;
@@ -32,10 +33,28 @@ public class ReportCommandService {
         Report report = reportRepository.findByPublicIdAndReporterId(reportPublicId, reporterId)
                 .orElseThrow(ReportCommandService::notFound);
 
+        // RPT-F4: 이미 취소된 신고를 다시 취소하면 그대로 성공(멱등) — 두 번 누른 사용자에게 틀린 안내를 주지 않는다.
+        if (report.getStatus() == ReportStatus.CANCELLED) {
+            return;
+        }
+        // RPT-F5: 전이표로 먼저 거르고(팀 규칙: 전이표 + 조건부 UPDATE), 조건부 UPDATE로 확정한다.
+        if (!report.getStatus().canTransitionTo(ReportStatus.CANCELLED)) {
+            throw notCancellable();
+        }
         int updated = reportRepository.cancelByReporter(report.getId(), reporterId, Instant.now());
         if (updated == 0) {
-            throw new BusinessException(CommonErrorCode.CONFLICT, "이미 검토가 시작되었거나 처리된 신고는 취소할 수 없습니다.");
+            // 그사이 상태가 바뀌었다. 동시에 두 번 취소한 경우라면 이미 CANCELLED이므로 성공으로 본다.
+            boolean alreadyCancelled = reportRepository.findByPublicIdAndReporterId(reportPublicId, reporterId)
+                    .map(r -> r.getStatus() == ReportStatus.CANCELLED)
+                    .orElse(false);
+            if (!alreadyCancelled) {
+                throw notCancellable();
+            }
         }
+    }
+
+    private static BusinessException notCancellable() {
+        return new BusinessException(CommonErrorCode.CONFLICT, "이미 검토가 시작되었거나 처리된 신고는 취소할 수 없습니다.");
     }
 
     private static BusinessException notFound() {

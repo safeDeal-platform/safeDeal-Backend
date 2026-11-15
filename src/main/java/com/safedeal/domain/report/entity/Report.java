@@ -3,6 +3,7 @@ package com.safedeal.domain.report.entity;
 import com.safedeal.domain.report.exception.ReportErrorCode;
 import com.safedeal.global.entity.MutableEntity;
 import com.safedeal.global.exception.BusinessException;
+import com.safedeal.global.exception.CommonErrorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -86,7 +87,9 @@ public class Report extends MutableEntity {
     private ReportReason reasonCode;
 
     /** 상세 설명. 재신고(부활) 시 바뀔 수 있다. */
-    @Column(length = 1000)
+    private static final int DETAIL_MAX_LENGTH = 1000;
+
+    @Column(length = DETAIL_MAX_LENGTH)
     private String detail;
 
     /** 채팅 신고의 증거 메시지 id. 매물 신고에는 없다. 재신고(부활) 시 바뀔 수 있다. */
@@ -137,6 +140,14 @@ public class Report extends MutableEntity {
                                  Instant now) {
         if (!reasonCode.allowsFor(targetType)) {
             throw new BusinessException(ReportErrorCode.REASON_NOT_ALLOWED_FOR_TARGET);
+        }
+        // RPT-F2: 채팅 신고는 증거 메시지가 필수다(정책). 방 id만으로는 운영자가 문제 발언을 찾을 수 없다.
+        if (targetType == ReportTargetType.CHAT && evidenceMessageId == null) {
+            throw new BusinessException(ReportErrorCode.INVALID_EVIDENCE_MESSAGE);
+        }
+        // RPT-F3: 컬럼 길이(1,000)를 넘기면 INSERT에서 터져 500이 되므로 여기서 400으로 막는다.
+        if (detail != null && detail.length() > DETAIL_MAX_LENGTH) {
+            throw new BusinessException(CommonErrorCode.INVALID_INPUT, "신고 상세 내용은 1,000자 이하여야 합니다.");
         }
         return new Report(publicId, reporterId, targetType, targetId, targetPublicId,
                 accusedUserId, reasonCode, detail, evidenceMessageId, now);

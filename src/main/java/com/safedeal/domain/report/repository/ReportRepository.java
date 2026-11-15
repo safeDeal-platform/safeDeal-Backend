@@ -3,7 +3,9 @@ package com.safedeal.domain.report.repository;
 import com.safedeal.domain.report.entity.Report;
 import com.safedeal.domain.report.entity.ReportReason;
 import com.safedeal.domain.report.entity.ReportTargetType;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -21,7 +23,12 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
      * 공개 id로 신고를 찾되, 신고자 조건을 쿼리 자체에 박아둔다. 신고자 본인이 아니면
      * "권한 없음"이 아니라 "없음"으로 응답한다 — {@code ChatRoomRepository.findByPublicIdAndParticipant}와
      * 같은 원칙(존재 여부 자체를 알려주지 않는다). 취소 API가 내부 id를 얻으려고 먼저 부른다.
+     *
+     * <p>RPT-F4: 행 잠금(FOR UPDATE)으로 읽는다. MySQL 기본 격리(REPEATABLE READ)에서 잠금 없는 읽기는
+     * 트랜잭션 첫 읽기 시점의 스냅샷을 보므로, 동시에 두 번 취소하면 뒤 요청이 이미 취소된 상태를 보지 못하고
+     * 409를 돌려준다. 잠금으로 뒤 요청을 앞 요청 커밋 뒤로 미뤄 최신 상태(CANCELLED)를 보게 한다.
      */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<Report> findByPublicIdAndReporterId(String publicId, Long reporterId);
 
     /**
