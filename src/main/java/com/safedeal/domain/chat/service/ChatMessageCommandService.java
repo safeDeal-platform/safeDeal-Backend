@@ -3,6 +3,7 @@ package com.safedeal.domain.chat.service;
 import com.safedeal.domain.chat.dto.ChatMessageAppendCommand;
 import com.safedeal.domain.chat.dto.ChatMessageAppendResult;
 import com.safedeal.domain.chat.entity.ChatMessage;
+import com.safedeal.global.util.UniqueViolations;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
