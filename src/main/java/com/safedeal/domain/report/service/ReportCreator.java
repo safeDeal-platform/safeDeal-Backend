@@ -72,7 +72,7 @@ public class ReportCreator {
             Report saved = reportRepository.save(candidate);
             return new ReportCreateResponse(saved.getPublicId(), saved.getStatus(), saved.getReceivedAt());
         }
-        return revive(existing, candidate, now);
+        return revive(existing, candidate);
     }
 
     /**
@@ -80,12 +80,15 @@ public class ReportCreator {
      * 취소(RPT-C39)와 직렬화하려고 행 잠금을 걸고 다시 판정한다. 이때 잠금 조회만 하면 영속성 컨텍스트(1차 캐시)에
      * 남은 첫 조회의 옛 객체가 그대로 돌아오므로, 잠금과 함께 DB 값으로 refresh한 결과로 판정한다 — 진 요청이
      * 옛 CANCELLED를 믿고 한도를 쓰지 않게 한다(RPT-C51, Q2). 최종 확정은 조건부 UPDATE다.
+     *
+     * <p>한도 날짜·접수 시각은 잠금을 얻은 뒤에 정한다 — 대기 중 자정을 넘기면 전날 키로 세지 않게 한다(RPT-C52).
      */
-    private ReportCreateResponse revive(Report existing, Report candidate, Instant now) {
+    private ReportCreateResponse revive(Report existing, Report candidate) {
         rejectUnlessCancelled(existing);
         Report locked = reportRepository.refreshForUpdate(existing);
         rejectUnlessCancelled(locked);
 
+        Instant now = Instant.now();
         acquireDailyLimit(candidate.getReporterId(), now);
         int updated = reportRepository.reviveCancelled(
                 locked.getId(), candidate.getDetail(), candidate.getEvidenceMessageId(), now);
