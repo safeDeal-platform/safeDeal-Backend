@@ -2,6 +2,7 @@ package com.safedeal.domain.report.service;
 
 import com.safedeal.domain.report.entity.Report;
 import com.safedeal.domain.report.entity.ReportReason;
+import com.safedeal.domain.report.entity.ReportStatus;
 import com.safedeal.domain.report.entity.ReportTargetType;
 import com.safedeal.domain.report.repository.ReportRepository;
 import com.safedeal.global.exception.BusinessException;
@@ -19,6 +20,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.Instant;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -81,5 +83,47 @@ class ReportCommandServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(CommonErrorCode.CONFLICT);
+    }
+
+    private Report reportIn(ReportStatus status) {
+        Report report = receivedReport();
+        ReflectionTestUtils.setField(report, "status", status);
+        return report;
+    }
+
+    @Test
+    @DisplayName("RPT-F4 이미 취소한 신고를 다시 취소하면 그대로 성공한다 - 조건부 UPDATE도 부르지 않는다(멱등)")
+    void cancellingCancelledReportIsNoOp() {
+        when(reportRepository.findByPublicIdAndReporterId(PUBLIC_ID, REPORTER))
+                .thenReturn(Optional.of(reportIn(ReportStatus.CANCELLED)));
+
+        assertThatCode(() -> reportCommandService.cancel(REPORTER, PUBLIC_ID)).doesNotThrowAnyException();
+        verify(reportRepository, never()).cancelByReporter(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("RPT-F5 검토 중·처리·기각된 신고는 전이표로 먼저 걸러 409(C004) - 조건부 UPDATE를 부르지 않는다")
+    void nonCancellableStatusIsRejectedByTransitionTable() {
+        for (ReportStatus status : new ReportStatus[] {ReportStatus.REVIEWING, ReportStatus.RESOLVED, ReportStatus.REJECTED}) {
+            when(reportRepository.findByPublicIdAndReporterId(PUBLIC_ID, REPORTER))
+                    .thenReturn(Optional.of(reportIn(status)));
+
+            assertThatThrownBy(() -> reportCommandService.cancel(REPORTER, PUBLIC_ID))
+                    .as(status.name())
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(CommonErrorCode.CONFLICT);
+        }
+        verify(reportRepository, never()).cancelByReporter(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("RPT-F4 동시에 두 번 취소해 조건부 UPDATE가 0행이어도, 다시 읽어 이미 취소돼 있으면 성공한다")
+    void concurrentDoubleCancelSucceeds() {
+        when(reportRepository.findByPublicIdAndReporterId(PUBLIC_ID, REPORTER))
+                .thenReturn(Optional.of(receivedReport()), Optional.of(reportIn(ReportStatus.CANCELLED)));
+        when(reportRepository.cancelByReporter(eq(99L), eq(REPORTER), any(Instant.class))).thenReturn(0);
+
+        assertThatCode(() -> reportCommandService.cancel(REPORTER, PUBLIC_ID)).doesNotThrowAnyException();
     }
 }
