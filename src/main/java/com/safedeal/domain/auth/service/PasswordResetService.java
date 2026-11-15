@@ -52,7 +52,7 @@ public class PasswordResetService {
      *
      * 이메일은 들어오자마자 정규화한다(trim+소문자) — 레이트리밋 키와 계정 조회가 같은 문자열을
      * 봐야, 대소문자만 바꿔 한도를 우회하는 공격이 안 통한다. 미룬 것: 이미 저장된 이메일의 대소문자
-     * 정리(D-17), 악센트 변형(D-18).
+     * 정리(D-17, #45), 악센트 변형(D-18, #46).
      */
     // READ COMMITTED — 기본(REPEATABLE READ)에서는 0행인 markAllUsedByUserId도 인덱스 틈(gap)을 잠가,
     // 토큰 없는 두 유저가 동시에 요청하면 서로의 INSERT를 막아 교착한다. 같은 유저끼리는 아래 유저 행 잠금이 직렬화한다.
@@ -118,7 +118,8 @@ public class PasswordResetService {
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN));
 
         // 1회용 판정은 조건부 UPDATE가 한다 — 동시에 두 번 제출해도 영향 행이 1인 요청만 통과한다.
-        if (tokenRepository.markUsed(token.getId(), now) != 1) {
+        // 잠금을 기다리는 사이 만료됐을 수 있어 지금 시각으로 다시 본다.
+        if (tokenRepository.markUsed(token.getId(), Instant.now()) != 1) {
             throw new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN);
         }
         user.changePassword(encoded);

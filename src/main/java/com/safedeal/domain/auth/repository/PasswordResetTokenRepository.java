@@ -16,10 +16,11 @@ public interface PasswordResetTokenRepository extends JpaRepository<PasswordRese
     /**
      * 1회용 보장 — 조건부 UPDATE로 소진한다. 사유는 {@link EmailVerificationTokenRepository#markUsed}와
      * 같다 — 다만 이쪽은 링크 하나가 계정을 통째로 넘길 수 있어 결과가 더 무겁다.
+     * 만료도 소진 시점에 다시 본다 — 첫 검사 뒤 bcrypt·잠금 대기 사이에 만료된 링크를 막는다.
      */
     @Modifying(flushAutomatically = true)
     @Query("update PasswordResetToken t set t.usedAt = :now, t.updatedAt = :now"
-            + " where t.id = :id and t.usedAt is null")
+            + " where t.id = :id and t.usedAt is null and t.expiresAt > :now")
     int markUsed(@Param("id") Long id, @Param("now") Instant now);
 
     /**

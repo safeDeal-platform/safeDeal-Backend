@@ -20,10 +20,16 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,7 +41,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
- * 재설정 사용(resetPassword)의 잠금 순서와 계정 거부 가드, 토큰 인덱스를 고정한다.
+ * 재설정 사용(resetPassword)의 잠금 순서와 계정 거부 가드, 소진 시점 만료 재검사, 토큰 인덱스를 고정한다.
  * 잠금 순서는 동시 실행으로는 bcrypt 시간 때문에 한쪽 순서만 재현돼, 호출 순서를 직접 검증한다.
  */
 class PasswordResetServiceTest extends IntegrationTestSupport {
@@ -49,6 +55,7 @@ class PasswordResetServiceTest extends IntegrationTestSupport {
     @Autowired RecordingMailSender mailSender;
     @Autowired StringRedisTemplate redisTemplate;
     @Autowired JdbcTemplate jdbc;
+    @Autowired TransactionTemplate tx;
 
     private User user;
 
@@ -135,6 +142,50 @@ class PasswordResetServiceTest extends IntegrationTestSupport {
         assertThat(passwordResetTokenRepository.count()).isZero();
         String body = mailSender.lastTo(user.getEmail()).orElseThrow().body();
         assertThat(body).contains("소셜 로그인").doesNotContain("?token=");
+    }
+
+    @Test
+    @DisplayName("소진 시점에 이미 만료된 링크는 소진되지 않는다 - 첫 검사 뒤 잠금 대기 중 만료된 경우")
+    void markUsedRejectsTokenExpiredAtConsumption() {
+        PasswordResetToken token = seedToken(SecureToken.generate());
+
+        Integer updated = tx.execute(status ->
+                passwordResetTokenRepository.markUsed(token.getId(), token.getExpiresAt().plusSeconds(1)));
+
+        assertThat(updated).isZero();
+        assertThat(passwordResetTokenRepository.findById(token.getId()).orElseThrow().getUsedAt()).isNull();
+    }
+
+    @Test
+    @DisplayName("첫 검사 때 유효했던 링크가 유저 행 잠금을 기다리는 사이 만료되면 비밀번호를 바꾸지 않는다")
+    void tokenExpiringWhileWaitingForLockIsRejected() throws Exception {
+        String raw = SecureToken.generate();
+        Instant expiresAt = Instant.now().plusMillis(1500);
+        passwordResetTokenRepository.save(PasswordResetToken.issue(user.getId(), JwtTokenProvider.hash(raw), expiresAt));
+
+        // 다른 트랜잭션이 유저 행을 잠근 채 만료 시각이 지날 때까지 붙잡는다.
+        CountDownLatch locked = new CountDownLatch(1);
+        ExecutorService holder = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> hold = holder.submit(() -> tx.executeWithoutResult(status -> {
+                jdbc.queryForObject("select id from users where id = ? for update", Long.class, user.getId());
+                locked.countDown();
+                try {
+                    Thread.sleep(Math.max(0, Duration.between(Instant.now(), expiresAt).toMillis() + 300));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+            assertThat(locked.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThatThrownBy(() -> passwordResetService.resetPassword(raw, "newPassword1"))
+                    .matches(PasswordResetServiceTest::isInvalidResetToken);
+            hold.get(10, TimeUnit.SECONDS);
+        } finally {
+            holder.shutdownNow();
+        }
+
+        assertThat(passwordEncoder.matches(OLD_PASSWORD, storedPasswordHash())).isTrue();
     }
 
     @Test

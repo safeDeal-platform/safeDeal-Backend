@@ -370,7 +370,7 @@ class AuthAccountRecoveryTest {
         reset(mailSender.tokenFromLastMailTo(email), "new-password-1234").andExpect(status().isOk());
     }
 
-    // ---------- 이메일 정규화 (입력만 — 기존 데이터 정리는 D-17로 미룸) ----------
+    // ---------- 이메일 정규화 (입력만 — 기존 데이터 정리는 D-17(#45)로 미룸) ----------
 
     @Test
     @DisplayName("대소문자만 바꿔 재설정을 요청해도 같은 계정으로 취급해 한도를 공유한다")
