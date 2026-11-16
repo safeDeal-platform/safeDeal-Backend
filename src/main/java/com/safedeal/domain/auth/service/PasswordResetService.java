@@ -12,10 +12,12 @@ import com.safedeal.global.mail.MailDispatch;
 import com.safedeal.global.mail.MailProperties;
 import com.safedeal.global.mail.MailSender;
 import com.safedeal.global.security.JwtTokenProvider;
+import com.safedeal.global.util.EmailNormalizer;
 import com.safedeal.global.util.SecureToken;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
@@ -47,18 +49,31 @@ public class PasswordResetService {
      *
      * OAuth 전용 계정에는 재설정 링크 대신 복구 안내를 메일 본문으로 보낸다 — 화면에 안내를
      * 띄우면 그 자체가 열거 정보가 된다(정책).
+     *
+     * 이메일은 들어오자마자 정규화한다(trim+소문자) — 레이트리밋 키와 계정 조회가 같은 문자열을
+     * 봐야, 대소문자만 바꿔 한도를 우회하는 공격이 안 통한다. 미룬 것: 이미 저장된 이메일의 대소문자
+     * 정리(D-17, #45), 악센트 변형(D-18, #46).
      */
-    @Transactional
+    // READ COMMITTED — 기본(REPEATABLE READ)에서는 0행인 markAllUsedByUserId도 인덱스 틈(gap)을 잠가,
+    // 토큰 없는 두 유저가 동시에 요청하면 서로의 INSERT를 막아 교착한다. 같은 유저끼리는 아래 유저 행 잠금이 직렬화한다.
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public void requestReset(String email, String clientIp) {
+        String normalizedEmail = EmailNormalizer.normalize(email);
         // 계정을 보기 전에 먼저 센다 — 존재하는 주소만 센다면 429 여부로 가입 여부가 드러난다.
-        if (!mailSendRateLimiter.allowPasswordResetRequest(JwtTokenProvider.hash(email), clientIp)) {
+        if (!mailSendRateLimiter.allowPasswordResetRequest(JwtTokenProvider.hash(normalizedEmail), clientIp)) {
             throw new BusinessException(AuthErrorCode.TOO_MANY_MAIL_REQUESTS);
         }
-        Optional<User> found = userRepository.findByEmailAndDeletedAtIsNull(email);
+        // 존재 확인은 잠금 없이 하고, 있을 때만 id(PK)로 잠근다 — 가입 안 한 이메일로도 매번
+        // 불리는 분기라 잠금은 실제 계정 행에만 건다.
+        Optional<User> found = userRepository.findByEmailAndDeletedAtIsNull(normalizedEmail);
         if (found.isEmpty()) {
             return;
         }
-        User user = found.get();
+        // 이 잠금이 아래 소진·발급 전체를 직렬화해, 같은 유저의 동시 요청에도 "최신 링크 1개"를 지킨다.
+        User user = userRepository.findForPasswordResetUpdate(found.get().getId()).orElse(null);
+        if (user == null) {
+            return;
+        }
 
         if (!user.hasPassword()) {
             MailDispatch.afterCommit(mailSender, user.getEmail(), SUBJECT,
@@ -67,14 +82,20 @@ public class PasswordResetService {
             return;
         }
 
+        // 새 링크를 만들기 전에 옛 미사용 링크를 전부 소진한다(D-15) — save보다 먼저 와야
+        // 방금 만든 새 토큰이 스스로 걸리지 않는다.
+        Instant now = Instant.now();
+        tokenRepository.markAllUsedByUserId(user.getId(), now);
+
         String rawToken = SecureToken.generate();
         tokenRepository.save(PasswordResetToken.issue(
-                user.getId(), JwtTokenProvider.hash(rawToken), Instant.now().plus(TTL)));
+                user.getId(), JwtTokenProvider.hash(rawToken), now.plus(TTL)));
 
         String link = mailProperties.getBaseUrl() + "/auth/password/reset?token=" + rawToken;
         // 커밋 후 발송 — 토큰 행이 롤백되면 열리지 않는 링크를 보내는 셈이 된다.
         MailDispatch.afterCommit(mailSender, user.getEmail(), SUBJECT,
-                "아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 30분 동안 유효합니다.\n" + link);
+                "아래 링크에서 새 비밀번호를 설정해 주세요. 링크는 30분 동안 유효합니다.\n"
+                        + "새 링크를 요청하면 이전 링크는 사용할 수 없습니다.\n" + link);
     }
 
     /**
@@ -88,15 +109,20 @@ public class PasswordResetService {
                 .filter(candidate -> candidate.isUsable(now))
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN));
 
-        User user = userRepository.findByIdAndDeletedAtIsNull(token.getUserId())
+        // bcrypt는 느려서 유저 행을 잠그기 전에 계산한다.
+        String encoded = passwordEncoder.encode(newPassword);
+
+        // requestReset과 같은 순서(유저 행 → 토큰)로 잠가, 서로 상대 잠금을 기다리는 교착을 막는다.
+        User user = userRepository.findForPasswordResetUpdate(token.getUserId())
                 .filter(User::hasPassword)
                 .orElseThrow(() -> new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN));
 
         // 1회용 판정은 조건부 UPDATE가 한다 — 동시에 두 번 제출해도 영향 행이 1인 요청만 통과한다.
-        if (tokenRepository.markUsed(token.getId(), now) != 1) {
+        // 잠금을 기다리는 사이 만료됐을 수 있어 지금 시각으로 다시 본다.
+        if (tokenRepository.markUsed(token.getId(), Instant.now()) != 1) {
             throw new BusinessException(AuthErrorCode.INVALID_PASSWORD_RESET_TOKEN);
         }
-        user.changePassword(passwordEncoder.encode(newPassword));
+        user.changePassword(encoded);
         refreshTokenStore.revokeAll(user.getId());
     }
 }

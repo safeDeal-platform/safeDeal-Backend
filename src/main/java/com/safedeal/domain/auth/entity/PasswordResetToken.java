@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -20,7 +21,9 @@ import java.time.Instant;
  * 해시 저장·1회용 판정 이유는 {@link EmailVerificationToken}과 같다.
  */
 @Entity
-@Table(name = "password_reset_tokens")
+// markAllUsedByUserId(user_id 조건 UPDATE)가 전체를 훑으며 다른 유저 행까지 잠그지 않게 한다.
+@Table(name = "password_reset_tokens",
+        indexes = @Index(name = "idx_password_reset_tokens_user_id", columnList = "user_id"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class PasswordResetToken extends MutableEntity {
