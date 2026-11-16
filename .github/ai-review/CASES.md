@@ -181,3 +181,51 @@ claude-code-action은 PR의 `ai-review.yml`이 기본 브랜치(dev)와 한 글�
 |---|---|
 | 재민 | `claude setup-token` 실행 → 레포 시크릿 `CLAUDE_CODE_OAUTH_TOKEN` 등록(토큰은 채팅·로그에 붙여넣지 않는다), claude.ai 사용 크레딧 꺼짐 확인 |
 | 경화(레포 관리자) | 동의 기록, Claude GitHub App 설치(이 레포만), Interaction limits 설정, Actions 외부 기여자 승인 설정, 새 룰셋 생성(dev·main, K1: `ai-review` 필수 + 코드 소유자 승인 필수 + 최신 push 기준 승인 필수 + 새 커밋이 오면 기존 승인 해제), CODEOWNERS를 dev·main 둘 다에 반영, ai-review를 처음 넣는 PR 직접 리뷰 |
+
+## 엄격 리뷰 (재민 승인 S1~S5·STR-01~22·QS-1~4·기존 테스트 변경 4곳, 2026-11-17 — "추천안대로 승인")
+
+배경: #48~#50에서 ai-review는 0건 PASS였는데 CodeRabbit은 테스트 결함(스레드 종료 미대기, 테스트 이름 불일치)을 잡았다.
+원인: P2는 막지 않음(F2·Q5), P1 기준이 높음, "추측 금지" 문장, 모델 미지정·관점 4개.
+Q5("P1 1건 이상이면 BLOCK")를 S2로 바꾼다. H1(P1·P2 정의 문장은 프론트와 같게)은 유지한다.
+
+| # | 결정 |
+|---|---|
+| S1 | 모델 Opus 지정(`--model opus`), `--max-turns` 40→80 |
+| S2 | P1 또는 P2가 1건 이상이면 BLOCK |
+| S3 | 리뷰 관점 추가: 동시성·트랜잭션 경계, 영속성 컨텍스트, 시간·날짜 경계, 테스트 품질, 바뀐 운영 코드의 테스트 읽기, `.coderabbit.yaml` 경로별 규칙 |
+| S4 | P2로 확정할 근거가 부족한 의심은 `[P3]` 질문 댓글. 판정에 영향 없음 |
+| S5 | 바뀐 파일마다 "검토함" 증거를 요구. 빠지면 판정 불가(실패) |
+
+| ID | 분류 | 상황 | 기대 결과 |
+|---|---|---|---|
+| STR-01 | S1 | Claude 스텝 claude_args | `--model opus` 포함 |
+| STR-02 | S1 | 탐색 한도 | `--max-turns 80`, Claude 스텝 timeout 35분 < job timeout 45분(CIR-14 유지) |
+| STR-03 | S2 | 표식 PASS, P1 0, P2 0 | PASS(종료 코드 0) |
+| STR-04 | S2 | 표식 PASS, P1 0, P2 1 이상 | BLOCK(실패) |
+| STR-05 | S2 | 표식 PASS, P1 1 이상 | BLOCK (유지) |
+| STR-06 | S2 | P2 건수 줄을 읽을 수 없음(없음·중복·정수 아님) | 판정 불가 (G1 유지) |
+| STR-07 | S2 | 프롬프트 | "P1 또는 P2가 1건 이상이면 BLOCK, 둘 다 0건이면 PASS" |
+| STR-08 | S4 | 프롬프트 | P3 정의 줄 + `[P3]` 댓글 규칙 + `P3[<nonce>]: <정수>` 건수 줄 |
+| STR-09 | S4 | P3 건수 줄을 읽을 수 없음 | 판정 불가 (QS-1) |
+| STR-10 | S4 | P3만 있고 P1·P2 0 | PASS. 요약에 "막는 지적 0건, 질문 N건" |
+| STR-11 | S3 | 프롬프트 관점 | 기존 4개 + 새 6개(위 S3)가 모두 있음 |
+| STR-12 | S3 | P1·P2 정의 문장 | 바꾸지 않음(H1) |
+| STR-13 | S5 | 결과 글 | 바뀐 파일마다 `REVIEWED[<nonce>]: <경로>` 한 줄 |
+| STR-14 | S5 | 바뀐 파일 목록(diff)과 REVIEWED 경로 집합이 다름(빠짐·없는 경로·중복) | 판정 불가 `incomplete_review` |
+| STR-15 | S5 | REVIEWED에 적었지만 실행 기록에 그 파일의 Read가 없음 | 판정 불가 `incomplete_review` (QS-2) |
+| STR-16 | S5 | 삭제된 파일·바이너리 파일 | REVIEWED·Read 요구 대상에서 뺀다 |
+| STR-17 | S5 | Read의 file_path가 절대 경로 | 작업 폴더 기준 상대 경로로 바꿔 비교. 일부만 읽어도 인정(QS-4) |
+| STR-18 | S5 | 판정 스텝 입력 | Conclude 스텝 env에 `DIFF_FILE`(.git/ai-review-pr.diff) 추가 |
+| STR-19 | 실패 | Opus 사용량 한도 | usage_limit 판정 불가(기존 CIR-24) |
+| STR-20 | 실패 | 80턴 초과 | timeout 판정 불가(기존) |
+| STR-21 | 운영 | P2 오탐으로 BLOCK | 반박 근거를 PR 댓글로 남기고 재실행. 그래도 같으면 경화가 우회 머지 (QS-3) |
+| STR-22 | 운영 | 이 PR 자체 | ai-review.yml 변경 → 기존 규칙대로 L2 우회 머지 |
+
+확인 필요: QS-1 P3 건수 줄 필수(추천) / QS-2 Read 기록까지 확인(추천) / QS-3 오탐 탈출구는 재실행→경화 우회(추천, 라벨 우회는 안 함) / QS-4 일부만 읽어도 인정(추천)
+
+승인이 필요한 기존 테스트 변경:
+- verdict.test.mjs "기타·F2 PASS + P1 0건이면 종료 코드 0": P2 2건 → 기대 PASS를 BLOCK으로 (S2)
+- verdict.test.mjs finalVerdict·conclusionOf 테스트(211~239줄): 입력에 p2Count 추가 (S2)
+- workflow.test.mjs "G5 … 네 가지 리뷰 관점": 이름을 관점 전체로 바꾸고 새 관점 추가 확인 (S3)
+- verdict.test.mjs conclude 테스트들의 okRun: REVIEWED 줄·P3 줄이 없으면 판정 불가가 되므로 픽스처에 추가 (S4·S5)
+- (구현 중 추가 승인, 2026-11-17 "제안대로 고치기") verdict.test.mjs "N1 ToolSearch를 쓰고 PASS 표식이면 CLI도 PASS": 입력 P2 1→0, 바뀐 파일 Read·REVIEWED·P3 줄 추가. 단언(PASS·종료 코드 0)은 그대로

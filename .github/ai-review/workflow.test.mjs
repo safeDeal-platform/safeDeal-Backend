@@ -303,12 +303,16 @@ test('G5 프롬프트가 diff 파일 경로를 가리킨다', () => {
 });
 
 // P1·P2 정의 문장 자체는 기존 AI 위임 리뷰(Q5)와 같아야 하며 사람이 리뷰한다. 여기서는 정의 줄이 있는지만 본다.
-test('G5 프롬프트에 P1·P2 정의와 네 가지 리뷰 관점이 있다', () => {
+// S3(STR-11): 기존 네 관점에 여섯 관점을 더한다.
+test('G5·STR-11 프롬프트에 P1·P2 정의와 리뷰 관점 전체가 있다', () => {
   const { wf } = load();
   const prompt = String(claudeStep(wf).with?.prompt ?? '');
   assert.match(prompt, /^\s*[-*]?\s*P1\s*[:：]/m, '줄 맨 앞 "P1:" 정의 줄이 있어야 한다');
   assert.match(prompt, /^\s*[-*]?\s*P2\s*[:：]/m, '줄 맨 앞 "P2:" 정의 줄이 있어야 한다');
-  for (const angle of ['줄 단위 조건 점검', '제거된 동작', '호출하는 쪽 영향', '팀 규칙 위반']) {
+  for (const angle of [
+    '줄 단위 조건 점검', '제거된 동작', '호출하는 쪽 영향', '팀 규칙 위반',
+    '동시성·트랜잭션 경계', '영속성 컨텍스트', '시간·날짜 경계', '테스트 품질', '바뀐 운영 코드의 테스트', '.coderabbit.yaml',
+  ]) {
     assert.ok(prompt.includes(angle), `리뷰 관점 "${angle}"이 있어야 한다`);
   }
 });

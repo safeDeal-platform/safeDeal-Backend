@@ -205,37 +205,37 @@ test('G2 실행 기록을 읽을 수 없으면 PASS로 이어지지 않는다', 
 });
 
 // ── finalVerdict / conclusionOf ──
-// p1Count는 정수 0일 때만 "P1 0건"으로 본다. 알 수 없는 값(undefined·문자열·음수)은 PASS로 이어지지 않는다.
+// p1Count·p2Count는 정수일 때만 건수로 본다(S2: P2도 막는다). 알 수 없는 값(undefined·문자열·음수)은 PASS로 이어지지 않는다.
 
 test('F2 표식 PASS + P1 0건이면 PASS, 체크 success', () => {
-  assert.equal(finalVerdict({ verdict: 'PASS', p1Count: 0 }), 'PASS');
-  assert.equal(conclusionOf({ verdict: 'PASS', p1Count: 0 }), 'success');
+  assert.equal(finalVerdict({ verdict: 'PASS', p1Count: 0, p2Count: 0 }), 'PASS');
+  assert.equal(conclusionOf({ verdict: 'PASS', p1Count: 0, p2Count: 0 }), 'success');
 });
 
 test('F2 표식이 PASS여도 P1이 1건 이상이면 BLOCK, 체크 failure', () => {
-  assert.equal(finalVerdict({ verdict: 'PASS', p1Count: 1 }), 'BLOCK');
-  assert.equal(conclusionOf({ verdict: 'PASS', p1Count: 2 }), 'failure');
+  assert.equal(finalVerdict({ verdict: 'PASS', p1Count: 1, p2Count: 0 }), 'BLOCK');
+  assert.equal(conclusionOf({ verdict: 'PASS', p1Count: 2, p2Count: 0 }), 'failure');
 });
 
 test('CIR-06 BLOCK이면 P1 수와 상관없이 failure', () => {
-  assert.equal(finalVerdict({ verdict: 'BLOCK', p1Count: 0 }), 'BLOCK');
-  assert.equal(conclusionOf({ verdict: 'BLOCK', p1Count: 0 }), 'failure');
+  assert.equal(finalVerdict({ verdict: 'BLOCK', p1Count: 0, p2Count: 0 }), 'BLOCK');
+  assert.equal(conclusionOf({ verdict: 'BLOCK', p1Count: 0, p2Count: 0 }), 'failure');
 });
 
 test('CIR-26·Q4 판정 불가는 failure', () => {
-  assert.equal(finalVerdict({ verdict: 'UNKNOWN', p1Count: 0 }), 'UNKNOWN');
-  assert.equal(conclusionOf({ verdict: 'UNKNOWN', p1Count: 0 }), 'failure');
+  assert.equal(finalVerdict({ verdict: 'UNKNOWN', p1Count: 0, p2Count: 0 }), 'UNKNOWN');
+  assert.equal(conclusionOf({ verdict: 'UNKNOWN', p1Count: 0, p2Count: 0 }), 'failure');
 });
 
 test('CIR-05 P1 수를 알 수 없으면 PASS로 보지 않는다', () => {
   for (const p1Count of [undefined, null, '0', -1, NaN]) {
-    assert.equal(finalVerdict({ verdict: 'PASS', p1Count }), 'UNKNOWN', String(p1Count));
-    assert.equal(conclusionOf({ verdict: 'PASS', p1Count }), 'failure', String(p1Count));
+    assert.equal(finalVerdict({ verdict: 'PASS', p1Count, p2Count: 0 }), 'UNKNOWN', String(p1Count));
+    assert.equal(conclusionOf({ verdict: 'PASS', p1Count, p2Count: 0 }), 'failure', String(p1Count));
   }
 });
 
 test('CIR-26 알 수 없는 판정 값은 failure', () => {
-  assert.equal(conclusionOf({ verdict: 'pass', p1Count: 0 }), 'failure');
+  assert.equal(conclusionOf({ verdict: 'pass', p1Count: 0, p2Count: 0 }), 'failure');
   assert.equal(conclusionOf({}), 'failure');
 });
 
@@ -294,22 +294,29 @@ const CLI = fileURLToPath(new URL('./verdict.mjs', import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'ai-review-cli-'));
 after(() => rmSync(dir, { recursive: true, force: true }));
 
+// S5: 판정에는 변경분(DIFF_FILE)과 작업 폴더(GITHUB_WORKSPACE)가 필요하다. 바뀐 파일 1개(src/A.java)짜리 픽스처.
+const WS = '/home/runner/work/repo/repo';
+const DIFF_PATH = join(dir, 'pr.diff');
+writeFileSync(DIFF_PATH, 'diff --git a/src/A.java b/src/A.java\n--- a/src/A.java\n+++ b/src/A.java\n@@ -1 +1 @@\n-a\n+b\n');
+
 function conclude(messages, env = {}) {
   const file = join(dir, `exec-${Math.random().toString(16).slice(2)}.json`);
   if (messages) writeFileSync(file, JSON.stringify(messages));
   const r = spawnSync(process.execPath, [CLI, 'conclude'], {
-    env: { PATH: process.env.PATH, NONCE: N, EXECUTION_FILE: file, ...env },
+    env: { PATH: process.env.PATH, NONCE: N, EXECUTION_FILE: file, DIFF_FILE: DIFF_PATH, GITHUB_WORKSPACE: WS, ...env },
     encoding: 'utf8',
   });
   return { status: r.status, out: r.stdout, err: r.stderr };
 }
-const okRun = (...lines) => [init(['Read', INLINE]), use('Read'), result(lines.join('\n'))];
+// S4·S5: 온전한 실행은 바뀐 파일을 Read하고, REVIEWED 줄과 P3 건수 줄을 함께 낸다.
+const readA = { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: `${WS}/src/A.java` } }] } };
+const okRun = (...lines) => [init(['Read', INLINE]), readA, result([`REVIEWED[${N}]: src/A.java`, `P3[${N}]: 0`, ...lines].join('\n'))];
 
-test('기타·F2 PASS + P1 0건이면 종료 코드 0, 지적 수는 P1+P2', () => {
+test('S2 PASS 표식이어도 P2가 있으면 BLOCK, 종료 코드 0 아님, 지적 수는 P1+P2', () => {
   const r = conclude(okRun(`P1[${N}]: 0`, `P2[${N}]: 2`, `VERDICT[${N}]: PASS`));
-  assert.match(r.out, /^verdict=PASS$/m);
+  assert.match(r.out, /^verdict=BLOCK$/m);
   assert.match(r.out, /^findings=2$/m);
-  assert.equal(r.status, 0);
+  assert.notEqual(r.status, 0);
 });
 
 test('기타·F2 PASS여도 P1이 1건 이상이면 BLOCK, 종료 코드 0 아님', () => {
@@ -401,7 +408,9 @@ test('N1 ToolSearch로 불러온 다른 도구를 쓰면 여전히 forbidden_too
 });
 
 test('N1 ToolSearch를 쓰고 PASS 표식이면 CLI도 PASS', () => {
-  const r = conclude([init(['Read', INLINE]), use('ToolSearch'), use(INLINE), result(`P1[${N}]: 0\nP2[${N}]: 1\nVERDICT[${N}]: PASS`)]);
+  // S2·S4·S5(재민 승인 2026-11-17): P2 0건, 바뀐 파일 Read·REVIEWED·P3 줄을 갖춘 온전한 실행. 검증 목적(ToolSearch 허용)은 그대로.
+  const r = conclude([init(['Read', INLINE]), use('ToolSearch'), readA, use(INLINE),
+    result(`REVIEWED[${N}]: src/A.java\nP1[${N}]: 0\nP2[${N}]: 0\nP3[${N}]: 0\nVERDICT[${N}]: PASS`)]);
   assert.match(r.out, /^verdict=PASS$/m);
   assert.equal(r.status, 0);
 });
