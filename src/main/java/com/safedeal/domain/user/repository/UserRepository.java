@@ -41,6 +41,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findForTrustScoreUpdate(@Param("id") Long id);
 
     /**
+     * 비밀번호 재설정 발급·사용 공용 — 행을 잠그고 읽는다. 같은 유저의 동시 발급이 각자 새 토큰을
+     * 만들어 "최신 링크 1개"(D-15)가 깨지는 것을 막고, 발급·사용 두 경로가 모두 이 잠금을 먼저 잡아
+     * 잠금 순서(유저 행 → 토큰)를 맞춘다. 행이 있을 때 레코드 잠금만 걸리도록 email이 아니라 id(PK)로 잠근다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.id = :id and u.deletedAt is null")
+    Optional<User> findForPasswordResetUpdate(@Param("id") Long id);
+
+    /**
      * 닉네임도 UNIQUE 제약과 같은 범위로 확인한다.
      * 탈퇴 계정의 닉네임을 풀어줄지(마스킹·해제)는 USR-3 소유라 여기서 정하지 않는다.
      */

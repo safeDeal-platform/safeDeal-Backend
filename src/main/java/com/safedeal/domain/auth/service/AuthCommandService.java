@@ -12,6 +12,7 @@ import com.safedeal.global.exception.BusinessException;
 import com.safedeal.global.security.JwtTokenProvider;
 import com.safedeal.global.security.JwtTokenProvider.IssuedToken;
 import com.safedeal.global.security.TokenBlacklist;
+import com.safedeal.global.util.EmailNormalizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -68,11 +69,12 @@ public class AuthCommandService {
      */
     @Transactional
     public AuthTokens signup(SignupRequest request, String clientIp) {
+        String email = EmailNormalizer.normalize(request.email());
         // 계정을 만들기 전에 먼저 센다 — 가입 한 번이 메일 한 통이라, 제한 없으면 다른 사용자 메일까지 막힐 수 있다.
         if (!mailSendRateLimiter.allowSignup(clientIp)) {
             throw new BusinessException(AuthErrorCode.TOO_MANY_MAIL_REQUESTS);
         }
-        if (userRepository.existsByEmail(request.email())) {
+        if (userRepository.existsByEmail(email)) {
             throw new BusinessException(AuthErrorCode.DUPLICATE_EMAIL);
         }
         if (userRepository.existsByNickname(request.nickname())) {
@@ -80,7 +82,7 @@ public class AuthCommandService {
         }
 
         User user = userRepository.save(User.createLocal(
-                request.email(), passwordEncoder.encode(request.password()), request.nickname()));
+                email, passwordEncoder.encode(request.password()), request.nickname()));
         user.markLoggedIn(Instant.now());
 
         // 가입은 성공시키고 인증만 미룬다 — 미인증 상태로도 로그인·열람은 가능하다. 발송 실패는 예외로 올리지 않는다(MailSender 참고).
@@ -94,12 +96,13 @@ public class AuthCommandService {
      */
     @Transactional
     public AuthTokens login(LoginRequest request, String clientIp) {
-        String accountKey = JwtTokenProvider.hash(request.email());
+        String email = EmailNormalizer.normalize(request.email());
+        String accountKey = JwtTokenProvider.hash(email);
         if (loginAttemptStore.isLocked(accountKey, clientIp)) {
             throw new BusinessException(AuthErrorCode.TOO_MANY_LOGIN_ATTEMPTS);
         }
 
-        User user = userRepository.findByEmailAndDeletedAtIsNull(request.email()).orElse(null);
+        User user = userRepository.findByEmailAndDeletedAtIsNull(email).orElse(null);
 
         // 계정이 없거나 OAuth 전용이어도 비교를 건너뛰지 않는다 — 건너뛰면 응답 속도로 가입 여부가 드러난다.
         boolean hasPassword = user != null && user.hasPassword();
