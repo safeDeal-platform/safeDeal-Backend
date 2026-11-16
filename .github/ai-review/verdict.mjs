@@ -1,12 +1,14 @@
 // 판정 표식 파서·건수·결과 추출·도구 검사·체크 결론·실패 분류
 // — CIR-05, 06, 14, 17, 23, 24, 25, 26, F2, F4, G1, G2
 // CLI: node .github/ai-review/verdict.mjs conclude
-//   입력 env: NONCE, EXECUTION_FILE(claude-code-action의 execution_file), GITHUB_OUTPUT(있으면 덧붙임)
-//   출력: stdout과 GITHUB_OUTPUT에 `verdict=<PASS|BLOCK|UNKNOWN>`, `reason=<코드>`, `findings=<P1+P2>`
+//   입력 env: NONCE, EXECUTION_FILE(claude-code-action의 execution_file), DIFF_FILE(변경분, 읽을 수 없으면 incomplete_review),
+//            GITHUB_WORKSPACE(없으면 cwd), GITHUB_OUTPUT(있으면 덧붙임)
+//   출력: stdout과 GITHUB_OUTPUT에 `verdict=<PASS|BLOCK|UNKNOWN>`, `reason=<코드>`, `findings=<P1+P2>`, `questions=<P3>`
 //   종료 코드: PASS일 때만 0. 이 종료 코드가 ai-review 체크의 결론이다.
 import { appendFileSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { filesFromDiff, unquoteGitPath } from './summary.mjs';
 
 // 허용 도구 기준값은 여기 한 곳. 워크플로의 --allowedTools는 이 값과 같은 집합이어야 한다(workflow.test.mjs).
 export const ALLOWED_TOOLS = ['Read', 'Grep', 'Glob', 'LS', 'mcp__github_inline_comment__create_inline_comment'];
@@ -46,6 +48,80 @@ function countLine(text, tag, nonce) {
   if (!/^(0|[1-9]\d*)$/.test(value)) return undefined;
   const n = Number(value);
   return Number.isSafeInteger(n) ? n : undefined;
+}
+
+export function parseQuestionCount(text, nonce) {
+  return countLine(text, 'P3', nonce);
+}
+
+// STR-13: `REVIEWED[<nonce>]: <경로>` 줄들의 경로 목록. 형식 오류(빈 경로·`: ` 없음)나 중복이면 undefined.
+export function parseReviewed(text, nonce) {
+  if (!validNonce(nonce)) return undefined;
+  const prefix = `REVIEWED[${nonce}]`;
+  const paths = [];
+  for (const line of linesOf(text)) {
+    if (!line.startsWith(prefix)) continue;
+    if (!line.startsWith(`${prefix}: `)) return undefined;
+    const path = line.slice(prefix.length + 2).trim();
+    if (path === '' || paths.includes(path)) return undefined;
+    paths.push(path);
+  }
+  return paths;
+}
+
+// STR-16: 검토해야 할 파일(삭제·바이너리 제외). 이름 변경은 새 경로.
+export function filesNeedingReview(diffText) {
+  const blocks = String(diffText ?? '').split(/\r?\n/).reduce((acc, line) => {
+    if (line.startsWith('diff --git ')) acc.push([line]);
+    else if (acc.length) acc[acc.length - 1].push(line);
+    return acc;
+  }, []);
+  const unq = (p) => (p.length >= 2 && p.startsWith('"') && p.endsWith('"') ? unquoteGitPath(p.slice(1, -1)) : p);
+  const files = [];
+  for (const block of blocks) {
+    if (block.some((l) => l.startsWith('deleted file mode') || l === 'GIT binary patch' || (l.startsWith('Binary files ') && l.endsWith(' differ')))) continue;
+    const rename = block.find((l) => l.startsWith('rename to '));
+    const plus = block.find((l) => l.startsWith('+++ ') && l !== '+++ /dev/null');
+    let path;
+    if (rename) path = unq(rename.slice('rename to '.length));
+    else if (plus) path = unq(plus.slice(4)).replace(/^b\//, '');
+    else path = filesFromDiff(block[0])[0];
+    if (path && !files.includes(path)) files.push(path);
+  }
+  return files;
+}
+
+// STR-17: 실행 기록에서 Read한 파일(작업 폴더 기준 상대 경로). 폴더 밖·.git 아래는 제외.
+export function readFiles(executionJson, workspace) {
+  const out = new Set();
+  const ws = String(workspace ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
+  for (const m of parseMessages(executionJson) ?? []) {
+    if (m?.type !== 'assistant') continue;
+    const content = Array.isArray(m.message?.content) ? m.message.content : [];
+    for (const c of content) {
+      if (c?.type !== 'tool_use' || c.name !== 'Read' || typeof c.input?.file_path !== 'string') continue;
+      let p = c.input.file_path.replace(/\\/g, '/');
+      if (p.startsWith('/') || /^[A-Za-z]:\//.test(p)) {
+        if (ws === '' || !p.startsWith(`${ws}/`)) continue;
+        p = p.slice(ws.length + 1);
+      }
+      while (p.startsWith('./')) p = p.slice(2);
+      if (p === '' || p.split('/').includes('..') || p === '.git' || p.startsWith('.git/')) continue;
+      out.add(p);
+    }
+  }
+  return out;
+}
+
+// STR-14·15·18: 바뀐 파일 전부가 REVIEWED에 있고 실제로 Read했는지. 문제 없으면 null.
+export function checkReviewEvidence({ text, nonce, diffText, executionJson, workspace } = {}) {
+  const incomplete = unknown('incomplete_review');
+  if (typeof diffText !== 'string' || diffText.trim() === '') return incomplete;
+  const needed = filesNeedingReview(diffText);
+  const listed = parseReviewed(text, nonce);
+  if (!listed || listed.length !== needed.length || !needed.every((f) => listed.includes(f))) return incomplete;
+  const read = readFiles(executionJson, workspace);
+  return needed.every((f) => read.has(f)) ? null : incomplete;
 }
 
 export function parseCounts(text, nonce) {
@@ -101,14 +177,16 @@ export function forbiddenToolNames(executionJson, allowed) {
 }
 
 // F2: PASS는 "표식 PASS + P1 정수 0건"일 때만. P1이 1건 이상이면 BLOCK. 그 밖은 판정 불가.
-export function finalVerdict({ verdict, p1Count } = {}) {
+// STR-03~06: P2도 1건 이상이면 BLOCK.
+export function finalVerdict({ verdict, p1Count, p2Count } = {}) {
   if (verdict === 'BLOCK') return 'BLOCK';
-  if (verdict !== 'PASS' || !Number.isInteger(p1Count) || p1Count < 0) return 'UNKNOWN';
-  return p1Count === 0 ? 'PASS' : 'BLOCK';
+  const ok = (n) => Number.isInteger(n) && n >= 0;
+  if (verdict !== 'PASS' || !ok(p1Count) || !ok(p2Count)) return 'UNKNOWN';
+  return p1Count === 0 && p2Count === 0 ? 'PASS' : 'BLOCK';
 }
 
-export function conclusionOf({ verdict, p1Count } = {}) {
-  return finalVerdict({ verdict, p1Count }) === 'PASS' ? 'success' : 'failure';
+export function conclusionOf({ verdict, p1Count, p2Count } = {}) {
+  return finalVerdict({ verdict, p1Count, p2Count }) === 'PASS' ? 'success' : 'failure';
 }
 
 // 아래 문구는 문서·관찰에서 가져온 가정값이다. 시범에서 실제 출력으로 바꾼다(테스트 변경 승인 절차).
@@ -129,7 +207,7 @@ export function classifyFailure({ exitCode, stderr, timedOut } = {}) {
 }
 
 // conclude: 실행 기록에서 판정을 낸다. 어느 단계에서든 확인이 안 되면 판정 불가(PASS 아님).
-export function conclude({ nonce, executionJson } = {}) {
+export function conclude({ nonce, executionJson, diffText, workspace } = {}) {
   if (!validNonce(nonce)) return { ...unknown('missing_nonce'), findings: undefined };
   const messages = parseMessages(executionJson);
   if (!messages) return { ...unknown('empty_output'), findings: undefined };
@@ -148,9 +226,13 @@ export function conclude({ nonce, executionJson } = {}) {
   if (parsed.verdict === 'UNKNOWN') return { ...parsed, findings: undefined };
   const counts = parseCounts(text, nonce);
   // G1: 건수 줄도 판정 줄과 같은 엄격한 규칙 — 어느 한쪽이라도 읽지 못하면 판정 불가.
-  if (counts.total === undefined) return { ...unknown('invalid_counts'), findings: undefined };
-  const verdict = finalVerdict({ verdict: parsed.verdict, p1Count: counts.p1 });
-  return { verdict, reason: verdict === 'UNKNOWN' ? 'invalid_counts' : '', findings: counts.total };
+  const questions = parseQuestionCount(text, nonce);
+  if (counts.total === undefined || questions === undefined) return { ...unknown('invalid_counts'), findings: undefined };
+  // STR-14: 바뀐 파일을 모두 읽었다는 증거가 없으면 BLOCK 표식이어도 판정 불가.
+  const evidence = checkReviewEvidence({ text, nonce, diffText, executionJson, workspace });
+  if (evidence) return { ...evidence, findings: undefined };
+  const verdict = finalVerdict({ verdict: parsed.verdict, p1Count: counts.p1, p2Count: counts.p2 });
+  return { verdict, reason: verdict === 'UNKNOWN' ? 'invalid_counts' : '', findings: counts.total, questions };
 }
 
 function readExecutionFile(path) {
@@ -168,8 +250,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     process.exit(2);
   }
   const env = process.env;
-  const result = conclude({ nonce: env.NONCE, executionJson: readExecutionFile(env.EXECUTION_FILE) });
-  const lines = `verdict=${result.verdict}\nreason=${result.reason}\nfindings=${result.findings ?? ''}\n`;
+  const result = conclude({
+    nonce: env.NONCE,
+    executionJson: readExecutionFile(env.EXECUTION_FILE),
+    diffText: readExecutionFile(env.DIFF_FILE),
+    workspace: env.GITHUB_WORKSPACE || process.cwd(),
+  });
+  const lines = `verdict=${result.verdict}\nreason=${result.reason}\nfindings=${result.findings ?? ''}\nquestions=${result.questions ?? ''}\n`;
   process.stdout.write(lines);
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, lines);
   if (result.reason === 'forbidden_tool') {

@@ -1,7 +1,7 @@
 // 요약 댓글 — CIR-05, 06, 10, 11, 13, 14, 15, 23, 24, 26, 27, 32, 34, 36, 39, F1, G2, G4, G6
 // CLI:
 //   node .github/ai-review/summary.mjs build
-//     입력 env: VERDICT, VERDICT_REASON, FINDINGS(verdict.mjs conclude 출력), GATE_REASON, HEAD_SHA, DIFF_FILE
+//     입력 env: VERDICT, VERDICT_REASON, FINDINGS, QUESTIONS(verdict.mjs conclude 출력), GATE_REASON, HEAD_SHA, DIFF_FILE
 //     출력: 요약 글(markdown)을 stdout에
 //   node .github/ai-review/summary.mjs comment
 //     입력 env: BODY_FILE, PR_NUMBER, GITHUB_TOKEN, GITHUB_REPOSITORY, GITHUB_API_URL, GITHUB_EVENT_PATH
@@ -36,6 +36,7 @@ const REASON_LABELS = {
   missing_nonce: '판정 확인값 없음', // CIR-26
   forbidden_tool: '허용되지 않은 도구 사용', // G2
   invalid_counts: '지적 수 표식 오류', // G1
+  incomplete_review: '검토 증거 부족', // STR-14
 };
 const UNKNOWN_LABEL = '알 수 없는 오류';
 
@@ -62,7 +63,7 @@ const code = (s) => {
 };
 const isCount = (n) => Number.isInteger(n) && n >= 0;
 
-export function buildSummary({ verdict, reason, sha, reviewedFiles, findingCount, resolved } = {}) {
+export function buildSummary({ verdict, reason, sha, reviewedFiles, findingCount, questionCount, resolved } = {}) {
   const files = Array.isArray(reviewedFiles) ? reviewedFiles : [];
   const done = Array.isArray(resolved) ? resolved : [];
   const out = [SUMMARY_MARKER, '## ai-review', `기준 SHA: ${shortSha(sha)}`];
@@ -70,6 +71,7 @@ export function buildSummary({ verdict, reason, sha, reviewedFiles, findingCount
   if (verdict === 'PASS' || verdict === 'BLOCK') {
     out.push(`판정: ${verdict}`);
     out.push(`지적 수: ${isCount(findingCount) ? findingCount : '알 수 없음'}`);
+    out.push(`질문(P3): ${isCount(questionCount) ? `${questionCount}건` : '알 수 없음'}`);
     out.push(files.length ? `검토 범위(${files.length}개 파일):\n${files.map((f) => `- ${code(f)}`).join('\n')}` : '검토 범위: 없음');
   } else {
     // 판정 불가(Q4): 일부만 보았거나 보지 못했으므로 검토 범위를 확인된 것으로 적지 않는다.
@@ -92,7 +94,7 @@ export function findSummaryComment(comments) {
 
 // CIR-41: git이 C 방식으로 인용한 경로("..." 안의 \NNN 8진수 바이트, \t, \", \\ 등)를 실제 경로로 되돌린다.
 const ESCAPES = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 };
-function unquoteGitPath(s) {
+export function unquoteGitPath(s) {
   const bytes = [];
   for (let i = 0; i < s.length; i++) {
     if (s[i] !== '\\') {
@@ -140,6 +142,7 @@ function buildFromEnv(env) {
   // gate가 걸렀으면 Claude를 부르지 않았으므로 판정은 판정 불가다.
   const verdict = gateReason === '' && (env.VERDICT === 'PASS' || env.VERDICT === 'BLOCK') ? env.VERDICT : 'UNKNOWN';
   const findings = /^(0|[1-9]\d*)$/.test(env.FINDINGS ?? '') ? Number(env.FINDINGS) : undefined;
+  const questions = /^(0|[1-9]\d*)$/.test(env.QUESTIONS ?? '') ? Number(env.QUESTIONS) : undefined;
   const diffFile = env.DIFF_FILE || '.git/ai-review-pr.diff';
   const reviewedFiles = existsSync(diffFile) ? filesFromDiff(readFileSync(diffFile, 'utf8')) : [];
   return buildSummary({
@@ -148,6 +151,7 @@ function buildFromEnv(env) {
     sha: env.HEAD_SHA,
     reviewedFiles,
     findingCount: findings,
+    questionCount: questions,
     resolved: [],
   });
 }
