@@ -92,15 +92,25 @@ export function filesNeedingReview(diffText) {
   return files;
 }
 
-// STR-17: 실행 기록에서 Read한 파일(작업 폴더 기준 상대 경로). 폴더 밖·.git 아래는 제외.
+// STR-15·17: 실행 기록에서 Read한 파일(작업 폴더 기준 상대 경로). 폴더 밖·.git 아래는 제외.
+// 요청(tool_use)만으로는 인정하지 않는다 — 같은 id의 tool_result가 있고 is_error가 아닐 때만 읽은 것이다(CodeRabbit #51).
 export function readFiles(executionJson, workspace) {
   const out = new Set();
   const ws = String(workspace ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
-  for (const m of parseMessages(executionJson) ?? []) {
+  const messages = parseMessages(executionJson) ?? [];
+  const contentOf = (m) => (Array.isArray(m?.message?.content) ? m.message.content : []);
+  const succeeded = new Set();
+  for (const m of messages) {
+    if (m?.type !== 'user') continue;
+    for (const c of contentOf(m)) {
+      if (c?.type === 'tool_result' && typeof c.tool_use_id === 'string' && c.is_error !== true) succeeded.add(c.tool_use_id);
+    }
+  }
+  for (const m of messages) {
     if (m?.type !== 'assistant') continue;
-    const content = Array.isArray(m.message?.content) ? m.message.content : [];
-    for (const c of content) {
+    for (const c of contentOf(m)) {
       if (c?.type !== 'tool_use' || c.name !== 'Read' || typeof c.input?.file_path !== 'string') continue;
+      if (typeof c.id !== 'string' || !succeeded.has(c.id)) continue;
       let p = c.input.file_path.replace(/\\/g, '/');
       if (p.startsWith('/') || /^[A-Za-z]:\//.test(p)) {
         if (ws === '' || !p.startsWith(`${ws}/`)) continue;
