@@ -309,8 +309,12 @@ function conclude(messages, env = {}) {
   return { status: r.status, out: r.stdout, err: r.stderr };
 }
 // S4·S5: 온전한 실행은 바뀐 파일을 Read하고, REVIEWED 줄과 P3 건수 줄을 함께 낸다.
-const readA = { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: `${WS}/src/A.java` } }] } };
-const okRun = (...lines) => [init(['Read', INLINE]), readA, result([`REVIEWED[${N}]: src/A.java`, `P3[${N}]: 0`, ...lines].join('\n'))];
+// CodeRabbit #51(재민 승인 2026-11-17): Read 요청 뒤에 같은 id의 성공 결과(tool_result)가 있어야 읽은 것으로 본다.
+const readA = [
+  { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'readA', name: 'Read', input: { file_path: `${WS}/src/A.java` } }] } },
+  { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'readA', content: '1	code' }] } },
+];
+const okRun = (...lines) => [init(['Read', INLINE]), ...readA, result([`REVIEWED[${N}]: src/A.java`, `P3[${N}]: 0`, ...lines].join('\n'))];
 
 test('S2 PASS 표식이어도 P2가 있으면 BLOCK, 종료 코드 0 아님, 지적 수는 P1+P2', () => {
   const r = conclude(okRun(`P1[${N}]: 0`, `P2[${N}]: 2`, `VERDICT[${N}]: PASS`));
@@ -409,7 +413,7 @@ test('N1 ToolSearch로 불러온 다른 도구를 쓰면 여전히 forbidden_too
 
 test('N1 ToolSearch를 쓰고 PASS 표식이면 CLI도 PASS', () => {
   // S2·S4·S5(재민 승인 2026-11-17): P2 0건, 바뀐 파일 Read·REVIEWED·P3 줄을 갖춘 온전한 실행. 검증 목적(ToolSearch 허용)은 그대로.
-  const r = conclude([init(['Read', INLINE]), use('ToolSearch'), readA, use(INLINE),
+  const r = conclude([init(['Read', INLINE]), use('ToolSearch'), ...readA, use(INLINE),
     result(`REVIEWED[${N}]: src/A.java\nP1[${N}]: 0\nP2[${N}]: 0\nP3[${N}]: 0\nVERDICT[${N}]: PASS`)]);
   assert.match(r.out, /^verdict=PASS$/m);
   assert.equal(r.status, 0);

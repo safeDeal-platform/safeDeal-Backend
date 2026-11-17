@@ -26,12 +26,21 @@ const renamed = (from, to) => `diff --git a/${from} b/${to}\nsimilarity index 90
 
 // ── 실행 기록 픽스처 ──
 const init = (tools) => ({ type: 'system', subtype: 'init', tools });
-const read = (filePath, extra = {}) => ({
-  type: 'assistant', message: { content: [{ type: 'tool_use', id: 'r', name: 'Read', input: { file_path: filePath, ...extra } }] },
+// CodeRabbit #51(재민 승인 2026-11-17): Read 요청과 그 결과(tool_result)를 tool_use_id로 짝짓는다.
+// read()는 [요청, 성공 결과], failedRead()는 [요청, 실패 결과(is_error)]를 돌려준다. 요청마다 고유 id.
+let seq = 0;
+const readUse = (id, filePath, extra) => ({
+  type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'Read', input: { file_path: filePath, ...extra } }] },
 });
+const toolResult = (id, isError) => ({
+  type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: isError ? 'File does not exist.' : '1\tcode', ...(isError ? { is_error: true } : {}) }] },
+});
+const read = (filePath, extra = {}) => { const id = `r${++seq}`; return [readUse(id, filePath, extra), toolResult(id, false)]; };
+const failedRead = (filePath) => { const id = `r${++seq}`; return [readUse(id, filePath, {}), toolResult(id, true)]; };
+const unansweredRead = (filePath) => readUse(`r${++seq}`, filePath, {});
 const grep = (path) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'g', name: 'Grep', input: { pattern: 'x', path } }] } });
 const result = (text) => ({ type: 'result', subtype: 'success', result: text });
-const execution = (...messages) => JSON.stringify(messages);
+const execution = (...messages) => JSON.stringify(messages.flat());
 const reviewed = (...paths) => paths.map((p) => `REVIEWED[${N}]: ${p}`);
 const counts = (p1, p2, p3) => [`P1[${N}]: ${p1}`, `P2[${N}]: ${p2}`, `P3[${N}]: ${p3}`];
 
@@ -131,6 +140,33 @@ test('STR-17 offset·limit으로 일부만 읽어도 읽은 것으로 본다', (
   assert.deepEqual([...readFiles(json, WS)], ['src/A.java']);
 });
 
+// CodeRabbit #51: 요청만으로는 읽었다고 보지 않는다. 같은 id의 성공한 tool_result가 있어야 한다.
+test('STR-15 결과가 is_error인 Read는 읽은 것으로 보지 않는다', () => {
+  assert.deepEqual([...readFiles(execution(failedRead(`${WS}/src/A.java`), result('끝')), WS)], []);
+});
+
+test('STR-15 결과가 없는 Read 요청은 읽은 것으로 보지 않는다', () => {
+  assert.deepEqual([...readFiles(execution(unansweredRead(`${WS}/src/A.java`), result('끝')), WS)], []);
+});
+
+test('STR-15 실패한 뒤 다시 읽어 성공하면 읽은 것으로 본다', () => {
+  const json = execution(failedRead(`${WS}/src/A.java`), read(`${WS}/src/A.java`), result('끝'));
+  assert.deepEqual([...readFiles(json, WS)], ['src/A.java']);
+});
+
+test('STR-15 다른 요청의 성공 결과로 실패한 Read를 인정하지 않는다(id로 짝짓기)', () => {
+  const [badUse] = failedRead(`${WS}/src/A.java`);
+  const [, otherOk] = read(`${WS}/src/B.java`);
+  const json = execution(badUse, otherOk, result('끝'));
+  assert.deepEqual([...readFiles(json, WS)], []);
+});
+
+test('STR-15 CLI: Read가 실패했는데 REVIEWED·PASS를 내면 incomplete_review', () => {
+  const r = conclude([], { messages: [init(['Read']), failedRead(`${WS}/src/A.java`), result(full(0, 0, 0, 'PASS').join('\n'))] });
+  assert.match(r.out, /^reason=incomplete_review$/m);
+  assert.notEqual(r.status, 0);
+});
+
 test('STR-17 Grep·작업 폴더 밖 Read·.git 아래 diff 파일은 파일을 읽은 것으로 보지 않는다', () => {
   const json = execution(grep(`${WS}/src/A.java`), read('/etc/passwd'), read(`${WS}/../other/src/A.java`), read(`${WS}/.git/ai-review-pr.diff`), result('끝'));
   assert.deepEqual([...readFiles(json, WS)], []);
@@ -183,7 +219,7 @@ writeFileSync(DIFF_PATH, diffOf(modified('src/A.java')));
 function conclude(lines, { messages, env = {} } = {}) {
   const file = join(dir, `exec-${Math.random().toString(16).slice(2)}.json`);
   const msgs = messages ?? [init(['Read']), read(`${WS}/src/A.java`), result(lines.join('\n'))];
-  writeFileSync(file, JSON.stringify(msgs));
+  writeFileSync(file, JSON.stringify(msgs.flat()));
   const r = spawnSync(process.execPath, [CLI, 'conclude'], {
     env: { PATH: process.env.PATH, NONCE: N, EXECUTION_FILE: file, DIFF_FILE: DIFF_PATH, GITHUB_WORKSPACE: WS, ...env },
     encoding: 'utf8',
