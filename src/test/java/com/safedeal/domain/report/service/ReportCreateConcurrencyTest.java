@@ -214,7 +214,9 @@ class ReportCreateConcurrencyTest extends ReportCreateIntegrationSupport {
     @DisplayName("RPT-C40 CLK-05 오늘 10건을 이미 쓴 신고자의 11·12번째 신고가 동시에 오면 둘 다 429(RPT003)이고 저장되지 않는다 - 한국 자정 직전에도")
     void eleventhAndTwelfthConcurrentlyAreBothRejected() throws Exception {
         // 일부러 한국 자정 직전으로 맞춘다. 채우는 쪽과 서비스가 같은 시계를 읽으므로 날짜가 갈라지지 않아야 한다.
-        clock.set(Instant.parse("2026-11-15T23:59:59.999+09:00"));
+        // 23:59:00인 이유: 한도 키 TTL은 자정까지 남은 초(올림)인데 Redis 시간은 실제로 흐른다. 23:59:59.999면 TTL 1초라
+        // CI가 느릴 때 키가 먼저 만료된다(ai-review #52, 재민 승인). 60초면 테스트가 끝날 때까지 남는다.
+        clock.set(Instant.parse("2026-11-15T23:59:00+09:00"));
         for (int i = 0; i < 10; i++) {
             assertThat(dailyLimiter.tryAcquire(reporter.getId(), clock.instant())).isTrue();
         }

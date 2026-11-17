@@ -176,9 +176,9 @@ class ReportCreateIntegrationTest extends ReportCreateIntegrationSupport {
     }
 
     @Test
-    @DisplayName("CLK-06 RPT-C26 한국 23:59:59.999에 하루 10건을 다 쓴 뒤 시계가 다음 날 00:00으로 넘어가면 새 신고가 접수되고 새 날짜로 센다")
+    @DisplayName("CLK-06 RPT-C26 한국 23:59:00에 하루 10건을 다 쓴 뒤 시계가 다음 날 00:00으로 넘어가면 새 신고가 접수되고 새 날짜로 센다")
     void dailyLimitResetsAtKstMidnight() {
-        clock.set(Instant.parse("2026-11-15T23:59:59.999+09:00"));
+        clock.set(Instant.parse("2026-11-15T23:59:00+09:00"));
         for (int i = 0; i < 10; i++) {
             assertThat(dailyLimiter.tryAcquire(reporter.getId(), clock.instant())).isTrue();
         }
