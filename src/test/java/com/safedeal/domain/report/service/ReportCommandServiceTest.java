@@ -7,11 +7,13 @@ import com.safedeal.domain.report.entity.ReportTargetType;
 import com.safedeal.domain.report.repository.ReportRepository;
 import com.safedeal.global.exception.BusinessException;
 import com.safedeal.global.exception.CommonErrorCode;
+import com.safedeal.testsupport.MutableClock;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -33,6 +35,7 @@ import static org.mockito.Mockito.when;
 class ReportCommandServiceTest {
 
     @Mock ReportRepository reportRepository;
+    @Spy MutableClock clock = new MutableClock();
 
     @InjectMocks ReportCommandService reportCommandService;
 
@@ -57,6 +60,18 @@ class ReportCommandServiceTest {
         reportCommandService.cancel(REPORTER, PUBLIC_ID);
 
         verify(reportRepository).cancelByReporter(eq(99L), eq(REPORTER), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("CLK-04 취소 시각(cancelledAt)은 주입된 시계의 값이다")
+    void cancelledAtComesFromInjectedClock() {
+        when(reportRepository.findByPublicIdAndReporterId(PUBLIC_ID, REPORTER))
+                .thenReturn(Optional.of(receivedReport()));
+        when(reportRepository.cancelByReporter(eq(99L), eq(REPORTER), any(Instant.class))).thenReturn(1);
+
+        reportCommandService.cancel(REPORTER, PUBLIC_ID);
+
+        verify(reportRepository).cancelByReporter(99L, REPORTER, MutableClock.DEFAULT);
     }
 
     @Test

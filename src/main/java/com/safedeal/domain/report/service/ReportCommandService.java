@@ -14,6 +14,7 @@ import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 
 /**
@@ -27,6 +28,7 @@ public class ReportCommandService {
 
     private final ReportRepository reportRepository;
     private final ReportCreator reportCreator;
+    private final Clock clock;
 
     /**
      * 신고 접수. 같은 신고가 동시에 들어와 둘 다 중복 판정을 통과하면 진 쪽은
@@ -79,7 +81,7 @@ public class ReportCommandService {
         if (!report.getStatus().canTransitionTo(ReportStatus.CANCELLED)) {
             throw notCancellable();
         }
-        int updated = reportRepository.cancelByReporter(report.getId(), reporterId, Instant.now());
+        int updated = reportRepository.cancelByReporter(report.getId(), reporterId, Instant.now(clock));
         if (updated == 0) {
             // 그사이 상태가 바뀌었다. 동시에 두 번 취소한 경우라면 이미 CANCELLED이므로 성공으로 본다.
             boolean alreadyCancelled = reportRepository.findByPublicIdAndReporterId(reportPublicId, reporterId)

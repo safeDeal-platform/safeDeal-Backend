@@ -18,6 +18,7 @@ import com.safedeal.global.exception.BusinessException;
 import com.safedeal.global.exception.ErrorCode;
 import com.safedeal.global.util.PublicIdGenerator;
 import com.safedeal.testsupport.IntegrationTestSupport;
+import com.safedeal.testsupport.MutableClock;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,6 +56,8 @@ public abstract class ReportCreateIntegrationSupport extends IntegrationTestSupp
     @Autowired protected PublicIdGenerator publicIdGenerator;
     @Autowired protected StringRedisTemplate redisTemplate;
     @Autowired protected JdbcTemplate jdbcTemplate;
+    /** 서비스가 읽는 시계(QC-3). 컨텍스트를 함께 쓰므로 {@link #cleanUp()}에서 기본값으로 되돌린다. */
+    @Autowired protected MutableClock clock;
 
     private final List<Long> createdUserIds = new ArrayList<>();
 
@@ -65,6 +68,7 @@ public abstract class ReportCreateIntegrationSupport extends IntegrationTestSupp
     @BeforeEach
     @AfterEach
     void cleanUp() {
+        clock.reset();
         reportRepository.deleteAllInBatch();
         chatMessageRepository.deleteAllInBatch();
         chatRoomRepository.deleteAllInBatch();

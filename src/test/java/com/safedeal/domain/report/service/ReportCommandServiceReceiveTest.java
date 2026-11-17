@@ -10,12 +10,14 @@ import com.safedeal.domain.report.exception.ReportErrorCode;
 import com.safedeal.domain.report.repository.ReportRepository;
 import com.safedeal.global.exception.BusinessException;
 import com.safedeal.global.exception.CommonErrorCode;
+import com.safedeal.testsupport.MutableClock;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.dao.CannotAcquireLockException;
@@ -43,6 +45,7 @@ class ReportCommandServiceReceiveTest {
 
     @Mock ReportRepository reportRepository;
     @Mock ReportCreator reportCreator;
+    @Spy MutableClock clock = new MutableClock();
 
     @InjectMocks ReportCommandService reportCommandService;
 
