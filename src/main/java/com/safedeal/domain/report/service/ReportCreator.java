@@ -25,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 
 /**
@@ -47,6 +48,7 @@ public class ReportCreator {
     private final UserRepository userRepository;
     private final ReportDailyLimiter dailyLimiter;
     private final PublicIdGenerator publicIdGenerator;
+    private final Clock clock;
 
     /** 확인된 신고 대상. 피신고자는 대상 종류로 정해지는 값이라 여기서 확정한다. */
     private record Target(Long id, String publicId, Long accusedUserId) {
@@ -59,7 +61,7 @@ public class ReportCreator {
                 ? listingTarget(reporterId, request.targetId())
                 : chatTarget(reporterId, request.targetId(), request.evidenceMessageId());
 
-        Instant now = Instant.now();
+        Instant now = Instant.now(clock);
         // 엔티티 팩토리가 사유×대상·증거 유무·길이를 막고 상세를 다듬는다. 부활 경로도 같은 규칙과 값을 쓴다.
         Report candidate = Report.receive(publicIdGenerator.generate(), reporterId, request.targetType(),
                 target.id(), target.publicId(), target.accusedUserId(), request.reasonCode(),
@@ -88,7 +90,7 @@ public class ReportCreator {
         Report locked = reportRepository.refreshForUpdate(existing);
         rejectUnlessCancelled(locked);
 
-        Instant now = Instant.now();
+        Instant now = Instant.now(clock);
         acquireDailyLimit(candidate.getReporterId(), now);
         int updated = reportRepository.reviveCancelled(
                 locked.getId(), candidate.getDetail(), candidate.getEvidenceMessageId(), now);
