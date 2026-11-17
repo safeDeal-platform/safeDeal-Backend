@@ -69,6 +69,15 @@ export function parseReviewed(text, nonce) {
   return paths;
 }
 
+// 이름이 안 바뀐 블록의 헤더는 `diff --git a/<X> b/<X>`로 양쪽이 같다. 그 모양이면 절반을 경로로 본다 —
+// 경로 안의 " b/"(예: `docs/a b/c.md`)를 경계로 오인하지 않는다(CodeRabbit #51). 아니면 undefined.
+function samePathFromHeader(line) {
+  const rest = String(line ?? '').slice('diff --git a/'.length);
+  if (!line?.startsWith('diff --git a/') || (rest.length - 3) % 2 !== 0) return undefined;
+  const half = rest.slice(0, (rest.length - 3) / 2);
+  return half !== '' && rest === `${half} b/${half}` ? half : undefined;
+}
+
 // STR-16: 검토해야 할 파일(삭제·바이너리 제외). 이름 변경은 새 경로.
 export function filesNeedingReview(diffText) {
   const blocks = String(diffText ?? '').split(/\r?\n/).reduce((acc, line) => {
@@ -86,7 +95,7 @@ export function filesNeedingReview(diffText) {
     if (rename) path = unq(rename.slice('rename to '.length));
     // 공백이 든 경로면 git이 헤더 끝에 구분용 탭을 붙인다(git diff.c). 탭을 떼고 나서 인용을 푼다.
     else if (plus) path = unq(plus.slice(4).replace(/\t$/, '')).replace(/^b\//, '');
-    else path = filesFromDiff(block[0])[0];
+    else path = samePathFromHeader(block[0]) ?? filesFromDiff(block[0])[0];
     if (path && !files.includes(path)) files.push(path);
   }
   return files;
