@@ -124,6 +124,15 @@ test('STR-16 공백 경로의 +++ 헤더 끝 탭은 경로에서 뺀다', () => 
   assert.deepEqual(filesNeedingReview(diff), [p]);
 });
 
+// CodeRabbit #51: 모드만 바뀌거나 빈 파일을 추가하면 +++ 줄이 없어 헤더로만 경로를 정한다. 경로 안의 " b/"에서 자르면 안 된다.
+test('STR-16 +++ 줄이 없는 블록에서 경로 안의 " b/"를 경계로 오인하지 않는다', () => {
+  const p = 'docs/a b/c.md';
+  const modeOnly = `diff --git a/${p} b/${p}\nold mode 100644\nnew mode 100755`;
+  const emptyAdded = `diff --git a/${p} b/${p}\nnew file mode 100644\nindex 0000000..e69de29`;
+  assert.deepEqual(filesNeedingReview(modeOnly), [p]);
+  assert.deepEqual(filesNeedingReview(emptyAdded), [p]);
+});
+
 test('STR-16 변경분이 비었으면 빈 목록', () => {
   assert.deepEqual(filesNeedingReview(''), []);
 });
