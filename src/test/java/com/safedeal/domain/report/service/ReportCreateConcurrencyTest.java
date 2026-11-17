@@ -182,8 +182,10 @@ class ReportCreateConcurrencyTest extends ReportCreateIntegrationSupport {
         return waiting != null && waiting > 0;
     }
 
+    /** CLK-07: 서비스와 같은 테스트 시계로 한국 날짜를 정한다 — 실제 시각이 자정을 넘어도 갈라지지 않는다. */
     private String todayLimitKey() {
-        String kstDate = LocalDate.now(ZoneId.of("Asia/Seoul")).format(DateTimeFormatter.BASIC_ISO_DATE);
+        String kstDate = LocalDate.ofInstant(clock.instant(), ZoneId.of("Asia/Seoul"))
+                .format(DateTimeFormatter.BASIC_ISO_DATE);
         return "rate:v1:" + reporter.getId() + ":report:" + kstDate;
     }
 
@@ -209,12 +211,12 @@ class ReportCreateConcurrencyTest extends ReportCreateIntegrationSupport {
     }
 
     @Test
-    @DisplayName("RPT-C40 오늘 10건을 이미 쓴 신고자의 11·12번째 신고가 동시에 오면 둘 다 429(RPT003)이고 저장되지 않는다")
+    @DisplayName("RPT-C40 CLK-05 오늘 10건을 이미 쓴 신고자의 11·12번째 신고가 동시에 오면 둘 다 429(RPT003)이고 저장되지 않는다 - 한국 자정 직전에도")
     void eleventhAndTwelfthConcurrentlyAreBothRejected() throws Exception {
-        // 서비스가 Instant.now()로 세므로 미리 채우는 쪽도 지금 시각을 쓴다. 한국 자정(UTC 15:00) 바로 앞에서
-        // 돌면 채운 날짜와 서비스가 세는 날짜가 갈라져 실패할 수 있다 — 시계를 주입받지 않는 한 남는 한계다.
+        // 일부러 한국 자정 직전으로 맞춘다. 채우는 쪽과 서비스가 같은 시계를 읽으므로 날짜가 갈라지지 않아야 한다.
+        clock.set(Instant.parse("2026-11-15T23:59:59.999+09:00"));
         for (int i = 0; i < 10; i++) {
-            assertThat(dailyLimiter.tryAcquire(reporter.getId(), Instant.now())).isTrue();
+            assertThat(dailyLimiter.tryAcquire(reporter.getId(), clock.instant())).isTrue();
         }
 
         List<Object> outcomes = runConcurrently(List.of(

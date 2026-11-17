@@ -25,6 +25,7 @@ import com.safedeal.global.exception.BusinessException;
 import com.safedeal.global.exception.CommonErrorCode;
 import com.safedeal.global.exception.ErrorCode;
 import com.safedeal.global.util.PublicIdGenerator;
+import com.safedeal.testsupport.MutableClock;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,11 +33,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -70,6 +73,8 @@ class ReportCreatorTest {
     @Mock UserRepository userRepository;
     @Mock ReportDailyLimiter dailyLimiter;
     @Mock PublicIdGenerator publicIdGenerator;
+    /** 서비스가 읽는 시계. 기본값 {@link MutableClock#DEFAULT}에 멈춰 있어 시각을 정확히 단언할 수 있다(CLK-02·CLK-03). */
+    @Spy MutableClock clock = new MutableClock();
 
     @InjectMocks ReportCreator reportCreator;
 
@@ -208,6 +213,16 @@ class ReportCreatorTest {
         assertThat(response).isEqualTo(new ReportCreateResponse(
                 NEW_REPORT_PUBLIC_ID, ReportStatus.RECEIVED, saved.getReceivedAt()));
         verify(dailyLimiter).tryAcquire(eq(REPORTER), any(Instant.class));
+    }
+
+    @Test
+    @DisplayName("CLK-02 새 신고의 한도 시각·저장된 receivedAt·응답 시각은 모두 주입된 시계의 값이다")
+    void newReportUsesInjectedClock() {
+        ReportCreateResponse response = reportCreator.receive(REPORTER, listingRequest(ReportReason.FRAUD, null));
+
+        verify(dailyLimiter).tryAcquire(REPORTER, MutableClock.DEFAULT);
+        assertThat(savedReport().getReceivedAt()).isEqualTo(MutableClock.DEFAULT);
+        assertThat(response.receivedAt()).isEqualTo(MutableClock.DEFAULT);
     }
 
     @Test
@@ -644,26 +659,21 @@ class ReportCreatorTest {
     }
 
     @Test
-    @DisplayName("RPT-C52 부활의 한도 차감·저장·응답 시각은 잠금을 얻은 뒤의 같은 시각이다")
+    @DisplayName("RPT-C52 CLK-03 부활의 한도 차감·저장·응답 시각은 잠금 전이 아니라 잠금을 얻은 뒤의 시계 값이다 (QC-4)")
     void revivalUsesTimeAfterLockIsAcquired() {
         Report existing = givenExisting(ReportStatus.CANCELLED);
-        Instant[] lockAcquiredAt = new Instant[1];
+        Instant lockAcquiredAt = MutableClock.DEFAULT.plusSeconds(5);
         when(reportRepository.refreshForUpdate(any(Report.class))).thenAnswer(invocation -> {
-            Thread.sleep(5); // 잠금 대기를 흉내 낸다
-            lockAcquiredAt[0] = Instant.now();
+            clock.advance(Duration.ofSeconds(5)); // 잠금을 기다리는 사이 시간이 흐른다
             return existing;
         });
         when(reportRepository.reviveCancelled(any(), any(), any(), any())).thenReturn(1);
 
         ReportCreateResponse response = reportCreator.receive(REPORTER, listingRequest(ReportReason.FRAUD, null));
 
-        ArgumentCaptor<Instant> limitAt = ArgumentCaptor.forClass(Instant.class);
-        ArgumentCaptor<Instant> revivedAt = ArgumentCaptor.forClass(Instant.class);
-        verify(dailyLimiter).tryAcquire(eq(REPORTER), limitAt.capture());
-        verify(reportRepository).reviveCancelled(eq(EXISTING_REPORT_ID), any(), any(), revivedAt.capture());
-        assertThat(limitAt.getValue()).isAfterOrEqualTo(lockAcquiredAt[0]);
-        assertThat(revivedAt.getValue()).isEqualTo(limitAt.getValue());
-        assertThat(response.receivedAt()).isEqualTo(limitAt.getValue());
+        verify(dailyLimiter).tryAcquire(REPORTER, lockAcquiredAt);
+        verify(reportRepository).reviveCancelled(eq(EXISTING_REPORT_ID), any(), any(), eq(lockAcquiredAt));
+        assertThat(response.receivedAt()).isEqualTo(lockAcquiredAt);
     }
 
     @Test

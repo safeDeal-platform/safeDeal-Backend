@@ -8,6 +8,7 @@ import com.safedeal.domain.report.entity.Report;
 import com.safedeal.domain.report.entity.ReportReason;
 import com.safedeal.domain.report.entity.ReportStatus;
 import com.safedeal.domain.report.exception.ReportErrorCode;
+import com.safedeal.domain.report.repository.ReportDailyLimiter;
 import com.safedeal.domain.user.entity.User;
 import com.safedeal.global.exception.BusinessException;
 import com.safedeal.global.exception.CommonErrorCode;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Duration;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ReportCreateIntegrationTest extends ReportCreateIntegrationSupport {
 
     @Autowired ReportCommandService reportCommandService;
+    @Autowired ReportDailyLimiter dailyLimiter;
 
     private User reporter;
     private User seller;
@@ -140,7 +143,7 @@ class ReportCreateIntegrationTest extends ReportCreateIntegrationSupport {
     }
 
     @Test
-    @DisplayName("RPT-C34 취소한 신고를 같은 사유로 다시 내면 같은 행이 RECEIVED로 살아나고 detail·evidence·receivedAt만 바뀐다")
+    @DisplayName("RPT-C34 CLK-08 취소한 신고를 같은 사유로 다시 내면 같은 행이 RECEIVED로 살아나고 detail·evidence·receivedAt만 바뀐다")
     void cancelledReportIsRevivedInPlace() {
         ChatRoom room = room(listing, reporter);
         Long firstEvidence = message(room, seller);
@@ -153,6 +156,8 @@ class ReportCreateIntegrationTest extends ReportCreateIntegrationSupport {
         jdbcTemplate.update("UPDATE reports SET created_at = '2026-01-01 00:00:00', "
                 + "received_at = '2026-01-01 00:00:00' WHERE public_id = ?", first.reportId());
         Long originalId = onlyReport().getId();
+        clock.advance(Duration.ofHours(1)); // CLK-08: 부활 시각을 테스트가 정한다
+        Instant revivedAt = clock.instant();
 
         ReportCreateResponse revived = reportCommandService.receive(
                 reporter.getId(), chatRequest(room, secondEvidence, "다시"));
@@ -165,7 +170,29 @@ class ReportCreateIntegrationTest extends ReportCreateIntegrationSupport {
         assertThat(row.getDetail()).isEqualTo("다시");
         assertThat(row.getEvidenceMessageId()).isEqualTo(secondEvidence);
         assertThat(row.getReceivedAt()).isAfter(past);
+        assertThat(row.getReceivedAt()).isEqualTo(revivedAt);
+        assertThat(revived.receivedAt()).isEqualTo(revivedAt);
         assertThat(row.getCreatedAt()).isEqualTo(past);
+    }
+
+    @Test
+    @DisplayName("CLK-06 RPT-C26 한국 23:59:59.999에 하루 10건을 다 쓴 뒤 시계가 다음 날 00:00으로 넘어가면 새 신고가 접수되고 새 날짜로 센다")
+    void dailyLimitResetsAtKstMidnight() {
+        clock.set(Instant.parse("2026-11-15T23:59:59.999+09:00"));
+        for (int i = 0; i < 10; i++) {
+            assertThat(dailyLimiter.tryAcquire(reporter.getId(), clock.instant())).isTrue();
+        }
+        Instant nextKstMidnight = Instant.parse("2026-11-16T00:00:00+09:00");
+        clock.set(nextKstMidnight);
+
+        ReportCreateResponse response = reportCommandService.receive(
+                reporter.getId(), listingRequest(listing, ReportReason.FRAUD, null));
+
+        assertThat(response.status()).isEqualTo(ReportStatus.RECEIVED);
+        assertThat(response.receivedAt()).isEqualTo(nextKstMidnight);
+        assertThat(onlyReport().getReceivedAt()).isEqualTo(nextKstMidnight);
+        assertThat(redisTemplate.opsForValue().get("rate:v1:" + reporter.getId() + ":report:20261116"))
+                .as("다음 날 키로 1건").isEqualTo("1");
     }
 
     @Test
