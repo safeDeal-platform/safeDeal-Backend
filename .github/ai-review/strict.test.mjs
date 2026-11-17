@@ -108,6 +108,13 @@ test('STR-16 git이 인용한 경로("…")는 실제 경로로 되돌린다', (
   assert.deepEqual(filesNeedingReview(diff), ['docs/한.md']);
 });
 
+// CodeRabbit #51: 경로에 공백이 있으면 git은 ---/+++ 헤더 끝에 구분용 탭을 붙인다(diff.c). 탭은 경로가 아니다.
+test('STR-16 공백 경로의 +++ 헤더 끝 탭은 경로에서 뺀다', () => {
+  const p = 'docs/review guide.md';
+  const diff = `diff --git a/${p} b/${p}\nindex 1..2 100644\n--- a/${p}\t\n+++ b/${p}\t\n@@ -1 +1 @@\n-a\n+b`;
+  assert.deepEqual(filesNeedingReview(diff), [p]);
+});
+
 test('STR-16 변경분이 비었으면 빈 목록', () => {
   assert.deepEqual(filesNeedingReview(''), []);
 });
