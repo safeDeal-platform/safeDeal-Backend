@@ -84,7 +84,8 @@ export function filesNeedingReview(diffText) {
     const plus = block.find((l) => l.startsWith('+++ ') && l !== '+++ /dev/null');
     let path;
     if (rename) path = unq(rename.slice('rename to '.length));
-    else if (plus) path = unq(plus.slice(4)).replace(/^b\//, '');
+    // 공백이 든 경로면 git이 헤더 끝에 구분용 탭을 붙인다(git diff.c). 탭을 떼고 나서 인용을 푼다.
+    else if (plus) path = unq(plus.slice(4).replace(/\t$/, '')).replace(/^b\//, '');
     else path = filesFromDiff(block[0])[0];
     if (path && !files.includes(path)) files.push(path);
   }
