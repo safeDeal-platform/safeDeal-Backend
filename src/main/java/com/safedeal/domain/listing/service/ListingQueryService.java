@@ -168,6 +168,8 @@ public class ListingQueryService {
 
     /** 탈퇴한 판매자는 조용히 null, 행이 아예 없으면 데이터 이상이므로 경고를 남긴다. */
     private SellerSummary resolveSeller(Listing listing) {
+        // 공통 정책(User.deletedAt: 조회 시 명시적 where)의 의도적 예외 — 탈퇴(정상)와 행 없음(데이터 이상)을
+        // 한 번의 조회로 구분하려면 탈퇴 행도 읽어야 한다. 탈퇴 판매자는 아래에서 응답에 싣지 않는다 (D1).
         Optional<User> found = userRepository.findById(listing.getSellerId());
         if (found.isEmpty()) {
             log.warn("매물 판매자 행 없음 - publicId={}, sellerId={}",
