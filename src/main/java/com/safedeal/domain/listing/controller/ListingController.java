@@ -74,7 +74,8 @@ public class ListingController {
     public ApiResponse<ListingDetailResponse> getListing(
             @AuthenticationPrincipal AuthenticatedUser user,
             @PathVariable String publicId) {
-        ListingDetailResponse detail = listingQueryService.getListing(publicId);
+        ListingDetailResponse detail = listingQueryService.getListing(
+                publicId, user == null ? null : user.userId());
         increaseViewCountQuietly(publicId, user);
         return ApiResponse.success(detail);
     }

@@ -6,8 +6,10 @@ import com.safedeal.domain.listing.entity.ItemCondition;
 import com.safedeal.domain.listing.entity.Listing;
 import com.safedeal.domain.listing.entity.ListingStatus;
 import com.safedeal.domain.listing.repository.CategoryRepository;
+import com.safedeal.domain.listing.repository.ListingFavoriteRepository;
 import com.safedeal.domain.listing.repository.ListingRepository;
 import com.safedeal.domain.listing.repository.ListingSearchCondition;
+import com.safedeal.domain.user.repository.UserRepository;
 import com.safedeal.global.exception.BusinessException;
 import com.safedeal.global.response.Base64CursorCodec;
 import com.safedeal.global.response.CursorCodec;
@@ -51,9 +53,12 @@ class ListingQueryServiceTest {
     @Mock ListingRepository listingRepository;
     @Mock CategoryRepository categoryRepository;
     @Mock CursorCodec cursorCodec;
+    @Mock UserRepository userRepository;
+    @Mock ListingFavoriteRepository listingFavoriteRepository;
 
     private ListingQueryService service() {
-        return new ListingQueryService(listingRepository, categoryRepository, cursorCodec);
+        return new ListingQueryService(listingRepository, categoryRepository, cursorCodec,
+                userRepository, listingFavoriteRepository);
     }
 
     private Category leaf(long id) {
@@ -417,7 +422,11 @@ class ListingQueryServiceTest {
         when(listingRepository.findByPublicIdAndDeletedAtIsNull("01J00000000000000000000001"))
                 .thenReturn(Optional.of(listing));
 
-        assertThat(service().getListing("01J00000000000000000000001")).isNotNull();
+        com.safedeal.domain.listing.dto.ListingDetailResponse detail =
+                service().getListing("01J00000000000000000000001", null);
+        assertThat(detail.publicId()).isEqualTo("01J00000000000000000000001");
+        assertThat(detail.status()).isEqualTo(ListingStatus.ACTIVE);
+        assertThat(detail.category().code()).isEqualTo(retired.getCode());
     }
 
     @Test
@@ -428,7 +437,7 @@ class ListingQueryServiceTest {
         when(listingRepository.findByPublicIdAndDeletedAtIsNull("01J00000000000000000000002"))
                 .thenReturn(Optional.of(blocked));
 
-        assertThatThrownBy(() -> service().getListing("01J00000000000000000000002"))
+        assertThatThrownBy(() -> service().getListing("01J00000000000000000000002", null))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("매물");
     }
@@ -442,7 +451,7 @@ class ListingQueryServiceTest {
                 950_000, leaf, ItemCondition.USED, "서울특별시", "강남구", false);
         ReflectionTestUtils.setField(listing, "version", 7L);
 
-        assertThat(com.safedeal.domain.listing.dto.ListingDetailResponse.from(listing).version())
+        assertThat(com.safedeal.domain.listing.dto.ListingDetailResponse.from(listing, null, 0L, null).version())
                 .isEqualTo(7L);
     }
 }

@@ -1,12 +1,17 @@
 package com.safedeal.domain.listing.service;
 
 import com.safedeal.domain.listing.dto.ListingDetailResponse;
+import com.safedeal.domain.listing.dto.ListingDetailResponse.SellerSummary;
 import com.safedeal.domain.listing.dto.ListingSummaryResponse;
 import com.safedeal.domain.listing.entity.Category;
 import com.safedeal.domain.listing.entity.Listing;
 import com.safedeal.domain.listing.repository.CategoryRepository;
+import com.safedeal.domain.listing.repository.ListingFavoriteRepository;
 import com.safedeal.domain.listing.repository.ListingRepository;
 import com.safedeal.domain.listing.repository.ListingSearchCondition;
+import com.safedeal.domain.trust.TrustScore;
+import com.safedeal.domain.user.entity.User;
+import com.safedeal.domain.user.repository.UserRepository;
 import com.safedeal.global.exception.BusinessException;
 import com.safedeal.global.exception.CommonErrorCode;
 import com.safedeal.global.response.Base64CursorCodec;
@@ -14,6 +19,7 @@ import com.safedeal.global.response.CursorCodec;
 import com.safedeal.global.response.CursorPayload;
 import com.safedeal.global.response.CursorResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,7 +32,9 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -40,6 +48,8 @@ public class ListingQueryService {
     private final ListingRepository listingRepository;
     private final CategoryRepository categoryRepository;
     private final CursorCodec cursorCodec;
+    private final UserRepository userRepository;
+    private final ListingFavoriteRepository listingFavoriteRepository;
 
     /**
      * 공개 목록.
@@ -143,12 +153,35 @@ public class ListingQueryService {
      * 목록에서만 뺀다) — "검색엔 안 뜨지만 링크가 있으면 보인다"가 의도이므로, 목록과 상세의
      * 이 판단 차이를 맞추려 하지 말 것.
      */
-    public ListingDetailResponse getListing(String publicId) {
+    public ListingDetailResponse getListing(String publicId, Long viewerId) {
         Listing listing = listingRepository.findByPublicIdAndDeletedAtIsNull(publicId)
                 .filter(Listing::isViewable)
                 .orElseThrow(() -> new BusinessException(
                         CommonErrorCode.RESOURCE_NOT_FOUND, "매물을 찾을 수 없습니다."));
-        return ListingDetailResponse.from(listing);
+        // 같은 읽기 전용 트랜잭션 안이라 찜 수와 찜 여부가 같은 스냅샷에서 나온다.
+        SellerSummary seller = resolveSeller(listing);
+        long favoriteCount = listingFavoriteRepository.countByListingId(listing.getId());
+        Boolean favorited = viewerId == null ? null
+                : listingFavoriteRepository.existsByUserIdAndListingId(viewerId, listing.getId());
+        return ListingDetailResponse.from(listing, seller, favoriteCount, favorited);
+    }
+
+    /** 탈퇴한 판매자는 조용히 null, 행이 아예 없으면 데이터 이상이므로 경고를 남긴다. */
+    private SellerSummary resolveSeller(Listing listing) {
+        // 공통 정책(User.deletedAt: 조회 시 명시적 where)의 의도적 예외 — 탈퇴(정상)와 행 없음(데이터 이상)을
+        // 한 번의 조회로 구분하려면 탈퇴 행도 읽어야 한다. 탈퇴 판매자는 아래에서 응답에 싣지 않는다 (D1).
+        Optional<User> found = userRepository.findById(listing.getSellerId());
+        if (found.isEmpty()) {
+            log.warn("매물 판매자 행 없음 - publicId={}, sellerId={}",
+                    listing.getPublicId(), listing.getSellerId());
+            return null;
+        }
+        User user = found.get();
+        if (user.getDeletedAt() != null) {
+            return null;
+        }
+        return new SellerSummary(user.getPublicId(), user.getNickname(),
+                TrustScore.display(user.getTrustScore()));
     }
 
     private int resolveSize(Integer size) {

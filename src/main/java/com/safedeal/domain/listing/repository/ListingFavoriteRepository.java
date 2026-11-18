@@ -89,4 +89,13 @@ public interface ListingFavoriteRepository extends JpaRepository<ListingFavorite
                                    @Param("lastCreatedAt") Instant lastCreatedAt,
                                    @Param("lastId") Long lastId,
                                    Pageable pageable);
+
+    /** 매물의 찜 수. listings를 조인하지 않고 idx_listing_favorites_listing 인덱스만 탄다. */
+    @Query("SELECT COUNT(f) FROM ListingFavorite f WHERE f.listing.id = :listingId")
+    long countByListingId(@Param("listingId") Long listingId);
+
+    @Query("SELECT COUNT(f) > 0 FROM ListingFavorite f "
+            + "WHERE f.userId = :userId AND f.listing.id = :listingId")
+    boolean existsByUserIdAndListingId(@Param("userId") Long userId,
+                                       @Param("listingId") Long listingId);
 }

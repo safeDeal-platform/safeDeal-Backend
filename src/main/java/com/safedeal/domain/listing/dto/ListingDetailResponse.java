@@ -5,11 +5,12 @@ import com.safedeal.domain.listing.entity.ItemCondition;
 import com.safedeal.domain.listing.entity.Listing;
 import com.safedeal.domain.listing.entity.ListingStatus;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
  * 매물 상세. API 명세서 구조를 따라 카테고리·지역을 중첩 객체로 묶는다. {@code images} ·
- * {@code seller} · {@code favoriteCount} · {@code verificationBadge}는 아직 없다 — 관련 도메인이
+ * {@code verificationBadge}는 아직 없다 — 관련 도메인이
  * 붙기 전에 null로 내려보내면 프론트가 값이 없는 상태를 계약으로 오해한다.
  */
 public record ListingDetailResponse(
@@ -27,7 +28,12 @@ public record ListingDetailResponse(
          * 수정 요청에 그대로 실어 보내는 값이다 — 그 사이 다른 사람이 먼저 고쳤으면 이 값이
          * 달라져 있어 수정이 실패한다. 여기서 안 주면 첫 수정에 쓸 값을 얻을 곳이 없다.
          */
-        Long version
+        Long version,
+        /** 판매자 요약. 탈퇴했거나 행이 없으면 null. */
+        SellerSummary seller,
+        long favoriteCount,
+        /** 로그인 사용자의 찜 여부. 비로그인이면 null(키는 그대로 내려간다). */
+        Boolean favorited
 ) {
     /** 카테고리는 숫자 id가 아니라 code로 노출한다. 표시명은 화면이 다시 조회하지 않도록 함께 준다. */
     public record CategoryRef(String code, String name, String parentName) {
@@ -41,7 +47,12 @@ public record ListingDetailResponse(
     public record RegionRef(String sido, String sigungu) {
     }
 
-    public static ListingDetailResponse from(Listing listing) {
+    /** 판매자 공개 요약. 내부 id·이메일은 싣지 않는다. */
+    public record SellerSummary(String publicId, String nickname, BigDecimal trustScore) {
+    }
+
+    public static ListingDetailResponse from(
+            Listing listing, SellerSummary seller, long favoriteCount, Boolean favorited) {
         return new ListingDetailResponse(
                 listing.getPublicId(),
                 listing.getTitle(),
@@ -53,6 +64,9 @@ public record ListingDetailResponse(
                 listing.getStatus(),
                 listing.getViewCount(),
                 listing.getCreatedAt(),
-                listing.getVersion());
+                listing.getVersion(),
+                seller,
+                favoriteCount,
+                favorited);
     }
 }
