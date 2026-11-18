@@ -11,6 +11,7 @@ import com.safedeal.domain.listing.repository.ListingRepository;
 import com.safedeal.domain.user.entity.User;
 import com.safedeal.domain.user.repository.UserRepository;
 import com.safedeal.global.exception.BusinessException;
+import com.safedeal.global.exception.CommonErrorCode;
 import com.safedeal.global.response.CursorCodec;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -156,7 +157,10 @@ class ListingDetailQueryServiceTest {
     void unknownListingTouchesNothingElse() {
         when(listingRepository.findByPublicIdAndDeletedAtIsNull(PUBLIC_ID)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.getListing(PUBLIC_ID, VIEWER_ID)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> service.getListing(PUBLIC_ID, VIEWER_ID))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(CommonErrorCode.RESOURCE_NOT_FOUND));
         verifyNoInteractions(userRepository, listingFavoriteRepository);
     }
 
@@ -165,7 +169,10 @@ class ListingDetailQueryServiceTest {
     void hiddenListingTouchesNothingElse() {
         givenListing(ListingStatus.BLOCKED);
 
-        assertThatThrownBy(() -> service.getListing(PUBLIC_ID, VIEWER_ID)).isInstanceOf(BusinessException.class);
+        assertThatThrownBy(() -> service.getListing(PUBLIC_ID, VIEWER_ID))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(CommonErrorCode.RESOURCE_NOT_FOUND));
         verifyNoInteractions(userRepository, listingFavoriteRepository);
     }
 

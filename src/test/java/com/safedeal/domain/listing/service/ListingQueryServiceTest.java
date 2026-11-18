@@ -422,7 +422,11 @@ class ListingQueryServiceTest {
         when(listingRepository.findByPublicIdAndDeletedAtIsNull("01J00000000000000000000001"))
                 .thenReturn(Optional.of(listing));
 
-        assertThat(service().getListing("01J00000000000000000000001", null)).isNotNull();
+        com.safedeal.domain.listing.dto.ListingDetailResponse detail =
+                service().getListing("01J00000000000000000000001", null);
+        assertThat(detail.publicId()).isEqualTo("01J00000000000000000000001");
+        assertThat(detail.status()).isEqualTo(ListingStatus.ACTIVE);
+        assertThat(detail.category().code()).isEqualTo(retired.getCode());
     }
 
     @Test
