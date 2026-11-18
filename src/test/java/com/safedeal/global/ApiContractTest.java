@@ -72,6 +72,20 @@ class ApiContractTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("LD-41 매물 상세는 화이트리스트 — 인증 없이도, 무효 토큰이어도 401이 아니다")
+    void listingDetail_isWhitelistedForAnonymous() throws Exception {
+        // 없는 매물이라 404가 맞다. 401이 나오면 상세가 화이트리스트에서 빠졌거나,
+        // 무효 토큰을 익명으로 넘기지 않고 거절하도록(Q3) 전역 필터가 바뀐 것이다.
+        mockMvc.perform(get("/api/listings/01JZZZZZZZZZZZZZZZZZZZZZZZ"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("C002"));
+        mockMvc.perform(get("/api/listings/01JZZZZZZZZZZZZZZZZZZZZZZZ")
+                        .header("Authorization", "Bearer not-a-jwt"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("C002"));
+    }
+
+    @Test
     @DisplayName("매물 등록은 화이트리스트가 아니다 — 인증 없이 401")
     void listingCreate_requiresAuth() throws Exception {
         mockMvc.perform(post("/api/listings").contentType(MediaType.APPLICATION_JSON).content("{}"))
