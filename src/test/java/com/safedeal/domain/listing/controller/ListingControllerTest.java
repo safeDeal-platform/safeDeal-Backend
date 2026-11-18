@@ -68,12 +68,12 @@ class ListingControllerTest {
     @Test
     @DisplayName("상세는 public_id로 조회하고 내부 id를 노출하지 않는다")
     void detailShape() throws Exception {
-        when(queryService.getListing("01J3A")).thenReturn(new ListingDetailResponse(
+        when(queryService.getListing("01J3A", null)).thenReturn(new ListingDetailResponse(
                 "01J3A", "아이폰", "설명", 950_000,
                 new ListingDetailResponse.CategoryRef("DIGITAL_PHONE", "스마트폰", "디지털기기"),
                 ItemCondition.LIKE_NEW,
                 new ListingDetailResponse.RegionRef("서울특별시", "강남구"),
-                ListingStatus.ACTIVE, 0, Instant.parse("2026-08-30T00:00:00Z"), 3L));
+                ListingStatus.ACTIVE, 0, Instant.parse("2026-08-30T00:00:00Z"), 3L, null, 0L, null));
 
         mockMvc.perform(get("/api/listings/01J3A"))
                 .andExpect(status().isOk())
@@ -90,12 +90,12 @@ class ListingControllerTest {
     @Test
     @DisplayName("조회수 증가가 실패해도 상세 조회는 200으로 나간다")
     void detailSurvivesViewCountFailure() throws Exception {
-        when(queryService.getListing("01J3A")).thenReturn(new ListingDetailResponse(
+        when(queryService.getListing("01J3A", null)).thenReturn(new ListingDetailResponse(
                 "01J3A", "아이폰", "설명", 950_000,
                 new ListingDetailResponse.CategoryRef("DIGITAL_PHONE", "스마트폰", "디지털기기"),
                 ItemCondition.LIKE_NEW,
                 new ListingDetailResponse.RegionRef("서울특별시", "강남구"),
-                ListingStatus.ACTIVE, 0, Instant.parse("2026-08-30T00:00:00Z"), 3L));
+                ListingStatus.ACTIVE, 0, Instant.parse("2026-08-30T00:00:00Z"), 3L, null, 0L, null));
         // 락 대기 타임아웃·DB 순단을 흉내 낸다. 읽기는 이미 성공한 뒤다.
         doThrow(new RuntimeException("lock wait timeout"))
                 .when(commandService).increaseViewCount(any(), any(), anyBoolean());
