@@ -66,6 +66,17 @@ class RequiredPropertyGuardTest {
     }
 
     @Test
+    @DisplayName("카카오 키가 비면 키 이름을 보고하며 기동을 막는다")
+    void kakaoSecretMissing_isReported() {
+        MockEnvironment env = fullyConfigured();
+        env.setProperty("app.oauth.kakao.client-secret", "");
+
+        assertThatThrownBy(() -> new RequiredPropertyGuard(env).checkRequiredProperties())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("app.oauth.kakao.client-secret");
+    }
+
+    @Test
     @DisplayName("해석되지 않은 플레이스홀더 문자열도 누락으로 판정한다")
     void unresolvedPlaceholder_isMissing() {
         MockEnvironment env = fullyConfigured();

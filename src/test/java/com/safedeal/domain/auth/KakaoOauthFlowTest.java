@@ -1,5 +1,6 @@
 package com.safedeal.domain.auth;
 
+import com.safedeal.domain.auth.client.KakaoOauthProperties;
 import com.safedeal.domain.auth.entity.OauthProvider;
 import com.safedeal.domain.auth.exception.AuthErrorCode;
 import com.safedeal.domain.auth.repository.OauthAccountRepository;
@@ -60,7 +61,6 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
     private static final String START = "/api/auth/oauth/kakao";
     private static final String CALLBACK = "/api/auth/oauth/kakao/callback";
     private static final String SIGNUP = "/api/auth/oauth/kakao/signup";
-    private static final String FRONTEND = "http://localhost:3000/oauth/callback";
     private static final AtomicLong SEQ = new AtomicLong(System.nanoTime());
 
     @Autowired MockMvc mockMvc;
@@ -71,6 +71,7 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
     @Autowired PasswordEncoder passwordEncoder;
     @Autowired JdbcTemplate jdbc;
     @Autowired StringRedisTemplate redisTemplate;
+    @Autowired KakaoOauthProperties kakaoProperties;
 
     private final List<String> emails = new ArrayList<>();
 
@@ -150,9 +151,9 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
         return UriComponentsBuilder.fromUriString(location).build().getQueryParams();
     }
 
-    private static void assertRedirect(MvcResult result, String key, String value) {
+    private void assertRedirect(MvcResult result, String key, String value) {
         String location = result.getResponse().getHeader(HttpHeaders.LOCATION);
-        assertThat(location).startsWith(FRONTEND + "?");
+        assertThat(location).startsWith(kakaoProperties.getFrontendCallbackUrl() + "?");
         // 결과 외의 값(code·state·이메일 등)이 프런트 주소에 새지 않는다.
         assertThat(query(location).toSingleValueMap()).containsExactly(java.util.Map.entry(key, value));
     }
@@ -160,9 +161,17 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
     private static String signupTicketOf(MvcResult result) {
         MockCookie cookie = (MockCookie) result.getResponse().getCookie("oauthSignup");
         assertThat(cookie).isNotNull();
-        assertThat(cookie.isHttpOnly()).isTrue();
-        assertThat(cookie.getPath()).isEqualTo("/api/auth/oauth");
+        assertOauthCookie(cookie);
         return cookie.getValue();
+    }
+
+    /** state·가입 티켓 쿠키 공통 속성 — JS로 못 읽고, https로만, 이 경로에만, Redis 보관 시간만큼만. */
+    private static void assertOauthCookie(MockCookie cookie) {
+        assertThat(cookie.isHttpOnly()).isTrue();
+        assertThat(cookie.getSecure()).isTrue();
+        assertThat(cookie.getSameSite()).isEqualTo("Lax");
+        assertThat(cookie.getPath()).isEqualTo("/api/auth/oauth");
+        assertThat(cookie.getMaxAge()).isEqualTo((int) OauthCommandService.COOKIE_TTL.toSeconds());
     }
 
     private MvcResult signup(String ticket, String nickname) throws Exception {
@@ -186,13 +195,12 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
         assertThat(location).startsWith("https://kauth.kakao.com/oauth/authorize?");
         MultiValueMap<String, String> params = query(location);
         assertThat(params.getFirst("response_type")).isEqualTo("code");
-        assertThat(params.getFirst("redirect_uri")).isNotBlank();
+        assertThat(params.getFirst("client_id")).isEqualTo(kakaoProperties.getClientId());
+        assertThat(params.getFirst("redirect_uri")).isEqualTo(kakaoProperties.getRedirectUri());
 
         MockCookie cookie = (MockCookie) result.getResponse().getCookie("oauthState");
         assertThat(cookie.getValue()).isEqualTo(params.getFirst("state"));
-        assertThat(cookie.isHttpOnly()).isTrue();
-        assertThat(cookie.getPath()).isEqualTo("/api/auth/oauth");
-        assertThat(cookie.getSameSite()).isEqualTo("Lax");
+        assertOauthCookie(cookie);
     }
 
     @Test
@@ -251,6 +259,27 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
         assertRedirect(cancelled, "error", "AUTH013");
 
         assertRedirect(loginWith("unknown-code"), "error", "AUTH012");
+    }
+
+    @Test
+    @DisplayName("카카오가 취소가 아닌 오류(server_error)를 보내거나 code 없이 오면 AUTH012 — 취소로 안내하지 않는다")
+    void providerErrorIsNotCancel() throws Exception {
+        String state = start();
+        MvcResult serverError = mockMvc.perform(get(CALLBACK)
+                        .param("error", "server_error").param("state", state)
+                        .cookie(new Cookie("oauthState", state)))
+                .andExpect(status().isFound()).andReturn();
+        assertRedirect(serverError, "error", "AUTH012");
+
+        String again = start();
+        assertRedirect(callback(null, again, again), "error", "AUTH012");
+        assertThat(kakao.fetchCount()).isZero();
+    }
+
+    @Test
+    @DisplayName("예상 못 한 장애도 JSON 원문 대신 프런트로 보낸다(C007)")
+    void unexpectedFailureStillRedirects() throws Exception {
+        assertRedirect(loginWith(FakeKakaoOauthClient.BOOM), "error", "C007");
     }
 
     @Test
@@ -332,6 +361,41 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("티켓을 받은 뒤 같은 이메일로 로컬 가입이 끼어들면 AUTH001이고 카카오 계정은 연결되지 않는다")
+    void localSignupBetweenTicketAndSubmit() throws Exception {
+        String email = newEmail();
+        long kakaoId = newKakaoId();
+        kakao.register("c", FakeKakaoOauthClient.verified(kakaoId, email));
+        String ticket = signupTicketOf(loginWith("c"));
+        localUser(email, false);
+
+        assertThat(signup(ticket, nickname()).getResponse().getContentAsString()).contains("AUTH001");
+        assertThat(oauthAccountRepository.findByProviderAndProviderUserId(OauthProvider.KAKAO, String.valueOf(kakaoId)))
+                .isEmpty();
+    }
+
+    @Test
+    @DisplayName("사전 검사를 통과하고 INSERT에서 UNIQUE가 터지면 C009로 되돌리고, 티켓은 소진하지 않는다")
+    void uniqueViolationOnInsertRollsBackAndKeepsTicket() throws Exception {
+        // 같은 카카오 계정이 이메일을 바꿔 가며 티켓을 두 장 받은 경우 — 두 번째는 연결 INSERT에서 막힌다.
+        long kakaoId = newKakaoId();
+        String first = newEmail();
+        String second = newEmail();
+        kakao.register("a", FakeKakaoOauthClient.verified(kakaoId, first));
+        kakao.register("b", FakeKakaoOauthClient.verified(kakaoId, second));
+        String ticketA = signupTicketOf(loginWith("a"));
+        String ticketB = signupTicketOf(loginWith("b"));
+        assertThat(signup(ticketA, nickname()).getResponse().getStatus()).isEqualTo(201);
+
+        MvcResult conflict = signup(ticketB, nickname());
+        assertThat(conflict.getResponse().getStatus()).isEqualTo(409);
+        assertThat(conflict.getResponse().getContentAsString()).contains("C009");
+        assertThat(userRepository.existsByEmail(second)).isFalse(); // 계정 INSERT도 함께 되돌려졌다
+        // 티켓이 살아 있어 AUTH016이 아니라 다시 같은 충돌(C009)이 난다.
+        assertThat(signup(ticketB, nickname()).getResponse().getContentAsString()).contains("C009");
+    }
+
+    @Test
     @DisplayName("티켓 쿠키가 없거나 지어낸 값이면 AUTH016")
     void missingOrForgedTicket() throws Exception {
         assertThat(signup(null, nickname()).getResponse().getContentAsString()).contains("AUTH016");
@@ -347,6 +411,21 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
         kakao.register("c", FakeKakaoOauthClient.verified(newKakaoId(), email));
 
         assertRedirect(loginWith("c"), "error", "AUTH015");
+    }
+
+    @Test
+    @DisplayName("악센트만 다른 주소의 계정(DB 콜레이션상 같은 값)에는 연결하지 않는다(AUTH015)")
+    void accentVariantAccountIsNotLinked() throws Exception {
+        String email = newEmail();                                    // kakao-N@safedeal.test
+        String lookalike = email.replace("safedeal", "safedëal"); // kakao-N@safedëal.test
+        emails.add(lookalike);
+        User attacker = localUser(lookalike, true);
+        kakao.register("c", FakeKakaoOauthClient.verified(newKakaoId(), email));
+
+        MvcResult result = loginWith("c");
+        assertRedirect(result, "error", "AUTH015");
+        assertThat(result.getResponse().getCookie("refreshToken")).isNull();
+        assertThat(oauthAccountRepository.existsByUserIdAndProvider(attacker.getId(), OauthProvider.KAKAO)).isFalse();
     }
 
     // ── 같은 이메일의 로컬 계정 ──
@@ -411,6 +490,29 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
         kakao.register("by-email", FakeKakaoOauthClient.verified(newKakaoId(), other));
         assertRedirect(loginWith("by-email"), "error", "AUTH005");
         assertThat(oauthAccountRepository.existsByUserIdAndProvider(suspended.getId(), OauthProvider.KAKAO)).isFalse();
+    }
+
+    @Test
+    @DisplayName("연결된 계정이 탈퇴했으면 AUTH005이고 refresh를 주지 않는다")
+    void deletedLinkedAccountIsRejected() throws Exception {
+        String email = newEmail();
+        User local = localUser(email, true);
+        kakao.register("c", FakeKakaoOauthClient.verified(newKakaoId(), email));
+        assertRedirect(loginWith("c"), "result", "login");
+
+        jdbc.update("UPDATE users SET deleted_at = NOW() WHERE id = ?", local.getId());
+        MvcResult result = loginWith("c");
+        assertRedirect(result, "error", "AUTH005");
+        assertThat(result.getResponse().getCookie("refreshToken")).isNull();
+    }
+
+    @Test
+    @DisplayName("공개 경로는 정확히 셋뿐이다 — 같은 접두어의 다른 경로·메서드는 401")
+    void onlyExactOauthPathsArePublic() throws Exception {
+        mockMvc.perform(post(START)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get(SIGNUP)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/auth/oauth/other")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/api/auth/oauth/kakao/unlink")).andExpect(status().isUnauthorized());
     }
 
     @Test

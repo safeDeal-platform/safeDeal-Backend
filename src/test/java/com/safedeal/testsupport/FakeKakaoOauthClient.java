@@ -23,6 +23,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Component
 public class FakeKakaoOauthClient extends KakaoOauthClient {
 
+    /** 이 코드로 부르면 BusinessException이 아닌 예외(인프라 장애 흉내)를 던진다. */
+    public static final String BOOM = "boom";
+
     private final Map<String, KakaoProfile> profiles = new ConcurrentHashMap<>();
     private final AtomicInteger fetchCount = new AtomicInteger();
 
@@ -33,6 +36,9 @@ public class FakeKakaoOauthClient extends KakaoOauthClient {
     @Override
     public KakaoProfile fetchProfile(String code) {
         fetchCount.incrementAndGet();
+        if (BOOM.equals(code)) {
+            throw new IllegalStateException("예상하지 못한 장애 흉내");
+        }
         KakaoProfile profile = profiles.get(code);
         if (profile == null) {
             throw new BusinessException(AuthErrorCode.OAUTH_PROVIDER_FAILED);

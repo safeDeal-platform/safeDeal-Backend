@@ -10,7 +10,6 @@ import com.safedeal.domain.auth.dto.SignupRequest;
 import com.safedeal.domain.auth.dto.TokenResponse;
 import com.safedeal.domain.auth.exception.AuthErrorCode;
 import com.safedeal.domain.auth.client.KakaoOauthProperties;
-import com.safedeal.domain.auth.repository.OauthTicketStore;
 import com.safedeal.domain.auth.service.AuthCommandService;
 import com.safedeal.domain.auth.service.OauthCommandService;
 import com.safedeal.domain.auth.service.OauthCommandService.CallbackResult;
@@ -18,11 +17,13 @@ import com.safedeal.domain.auth.service.EmailVerificationService;
 import com.safedeal.domain.auth.service.PasswordResetService;
 import com.safedeal.domain.auth.service.AuthTokens;
 import com.safedeal.global.exception.BusinessException;
+import com.safedeal.global.exception.CommonErrorCode;
 import com.safedeal.global.security.AuthenticatedUser;
 import com.safedeal.global.response.ApiResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -47,6 +48,7 @@ import java.time.Instant;
  * access 토큰은 응답 바디로, refresh 토큰은 httpOnly 쿠키로만 내려준다(정책 '쿠키 전달') —
  * 자바스크립트가 읽을 수 있는 곳에 refresh를 두면 탈취당했을 때 그대로 도난당한다.
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/auth")
 @RequiredArgsConstructor
@@ -166,11 +168,18 @@ public class AuthController {
      */
     @GetMapping("/oauth/kakao")
     public ResponseEntity<Void> startKakaoLogin() {
-        OauthCommandService.Start start = oauthCommandService.start();
+        OauthCommandService.Start start;
+        try {
+            start = oauthCommandService.start();
+        } catch (RuntimeException e) {
+            // 링크 클릭으로 오는 화면 이동이라, 실패해도 JSON 원문 대신 프런트로 보낸다.
+            log.error("카카오 로그인 시작 중 예상하지 못한 오류", e);
+            return redirectToFrontend("error", CommonErrorCode.INTERNAL_ERROR.getCode());
+        }
         return ResponseEntity.status(HttpStatus.FOUND)
                 .location(start.authorizeUri())
                 .header(HttpHeaders.SET_COOKIE,
-                        oauthCookie(OAUTH_STATE_COOKIE, start.state(), OauthTicketStore.TTL).toString())
+                        oauthCookie(OAUTH_STATE_COOKIE, start.state(), OauthCommandService.COOKIE_TTL).toString())
                 .build();
     }
 
@@ -179,7 +188,10 @@ public class AuthController {
      * <ul>
      *   <li>로그인 — refresh 쿠키 + {@code ?result=login}. access는 프런트가 /reissue로 받는다(정책 '토큰 전달').</li>
      *   <li>처음 온 사용자 — 가입 티켓 쿠키 + {@code ?result=signup}. 프런트가 닉네임을 받아 /oauth/kakao/signup으로 낸다.</li>
-     *   <li>실패 — {@code ?error=AUTH0xx}. 에러 코드 외에는 아무것도 붙이지 않는다.</li>
+     *   <li>실패 — {@code ?error=코드}. 에러 코드 외에는 아무것도 붙이지 않는다. 나올 수 있는 값:
+     *       AUTH011(state 불일치·만료) · AUTH012(카카오 오류) · AUTH013(사용자 취소) · AUTH014(인증된 이메일 없음) ·
+     *       AUTH015(같은 이메일 계정에 연결 불가) · AUTH005(이용 제한 계정) · C009(동시 요청 충돌, 재시도 가능) ·
+     *       C007(서버 오류)</li>
      * </ul>
      * 이동할 주소는 요청값이 아니라 설정값 하나로 고정한다 — 요청으로 받으면 남의 사이트로 보내는 통로(오픈 리다이렉트)가 된다.
      * state 쿠키는 결과와 상관없이 지운다(1회용).
@@ -197,9 +209,13 @@ public class AuthController {
                 return redirectToFrontend("result", "login", clearState, refreshCookie(result.tokens()).toString());
             }
             return redirectToFrontend("result", "signup", clearState,
-                    oauthCookie(OAUTH_SIGNUP_COOKIE, result.signupTicket(), OauthTicketStore.TTL).toString());
+                    oauthCookie(OAUTH_SIGNUP_COOKIE, result.signupTicket(), OauthCommandService.COOKIE_TTL).toString());
         } catch (BusinessException e) {
             return redirectToFrontend("error", e.getErrorCode().getCode(), clearState);
+        } catch (RuntimeException e) {
+            // Redis·DB 장애처럼 예상 못 한 실패도 브라우저에 JSON 원문을 띄우지 않고 프런트로 보낸다.
+            log.error("카카오 콜백 처리 중 예상하지 못한 오류", e);
+            return redirectToFrontend("error", CommonErrorCode.INTERNAL_ERROR.getCode(), clearState);
         }
     }
 

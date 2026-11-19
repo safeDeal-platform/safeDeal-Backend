@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.safedeal.domain.auth.exception.AuthErrorCode;
 import com.safedeal.global.exception.BusinessException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
@@ -46,12 +47,22 @@ public class KakaoOauthClient {
     private final KakaoOauthProperties properties;
     private final RestClient restClient;
 
+    @Autowired
     public KakaoOauthClient(KakaoOauthProperties properties) {
+        this(properties, RestClient.builder().requestFactory(timeoutRequestFactory()).build());
+    }
+
+    /** 테스트가 가짜 HTTP 서버(MockRestServiceServer)를 붙인 RestClient를 넣을 때 쓴다. */
+    KakaoOauthClient(KakaoOauthProperties properties, RestClient restClient) {
         this.properties = properties;
+        this.restClient = restClient;
+    }
+
+    private static JdkClientHttpRequestFactory timeoutRequestFactory() {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
                 HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build());
         requestFactory.setReadTimeout(READ_TIMEOUT);
-        this.restClient = RestClient.builder().requestFactory(requestFactory).build();
+        return requestFactory;
     }
 
     /** 카카오 동의 화면 주소. state는 URL-safe 값(SecureToken)이라 그대로 실어도 안전하다. */

@@ -18,10 +18,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -42,7 +44,12 @@ import java.util.Optional;
 public class OauthCommandService {
 
     private static final OauthProvider PROVIDER = OauthProvider.KAKAO;
+    private static final String ACCESS_DENIED = "access_denied";
 
+    /** state·가입 티켓 쿠키 수명. Redis 보관 시간과 같아야 한다 — 쿠키가 더 길면 만료된 값을 들고 오고, 짧으면 멀쩡한 로그인이 끊긴다. */
+    public static final Duration COOKIE_TTL = OauthTicketStore.TTL;
+
+    private final TransactionTemplate transactionTemplate;
     private final KakaoOauthClient kakaoOauthClient;
     private final OauthTicketStore ticketStore;
     private final OauthAccountRepository oauthAccountRepository;
@@ -70,9 +77,11 @@ public class OauthCommandService {
      * 하는 공격(로그인 CSRF)은 여기서 끝나야 한다. 쿠키(이 브라우저가 시작했나)와 Redis(한 번만 쓰였나)를
      * 둘 다 본다. 쿠키만 보면 재사용을, Redis만 보면 남의 state를 못 막는다.
      *
-     * @param error 사용자가 동의 화면에서 취소하면 카카오가 채워 보낸다
+     * 트랜잭션은 카카오 호출이 끝난 뒤 DB 작업에만 건다 — 카카오 응답(최대 십수 초)을 기다리는 동안
+     * DB 연결을 붙잡고 있으면, 카카오가 느려질 때 연결 풀이 말라 다른 API까지 멈춘다.
+     *
+     * @param error 사용자가 동의 화면에서 취소하면 카카오가 access_denied를 채워 보낸다
      */
-    @Transactional
     public CallbackResult callback(String code, String state, String stateCookie, String error) {
         if (state == null || stateCookie == null
                 || !MessageDigest.isEqual(state.getBytes(StandardCharsets.UTF_8),
@@ -81,19 +90,25 @@ public class OauthCommandService {
             throw new BusinessException(AuthErrorCode.OAUTH_INVALID_STATE);
         }
         if (error != null) {
-            throw new BusinessException(AuthErrorCode.OAUTH_CANCELLED);
+            // 취소만 AUTH013 — server_error 같은 카카오 쪽 오류를 "취소하셨어요"로 안내하면 안 된다.
+            throw new BusinessException(ACCESS_DENIED.equals(error)
+                    ? AuthErrorCode.OAUTH_CANCELLED : AuthErrorCode.OAUTH_PROVIDER_FAILED);
         }
         if (code == null || code.isBlank()) {
             throw new BusinessException(AuthErrorCode.OAUTH_PROVIDER_FAILED);
         }
 
         KakaoProfile profile = kakaoOauthClient.fetchProfile(code);
+        return transactionTemplate.execute(status -> resolveAccount(profile));
+    }
+
+    private CallbackResult resolveAccount(KakaoProfile profile) {
         String providerUserId = String.valueOf(profile.id());
 
         // 이미 연결된 카카오 계정이면 이메일은 보지 않는다 — 매칭 키는 (provider, 회원번호)다.
         Optional<OauthAccount> linked = oauthAccountRepository.findByProviderAndProviderUserId(PROVIDER, providerUserId);
         if (linked.isPresent()) {
-            User user = userRepository.findById(linked.get().getUserId())
+            User user = userRepository.findByIdAndDeletedAtIsNull(linked.get().getUserId())
                     .filter(User::isLoginAllowed)
                     .orElseThrow(() -> new BusinessException(AuthErrorCode.ACCOUNT_NOT_ACTIVE));
             return new CallbackResult(login(user), null);
@@ -105,6 +120,11 @@ public class OauthCommandService {
 
         Optional<User> sameEmail = userRepository.findByEmailAndDeletedAtIsNull(email);
         if (sameEmail.isPresent()) {
+            // DB 콜레이션(ai_ci)은 악센트만 다른 주소(gmaïl.com ↔ gmail.com)도 같은 행으로 찾아준다(D-18).
+            // 글자까지 같을 때만 같은 사람으로 본다 — 아니면 비슷한 주소로 먼저 가입한 사람에게 카카오가 붙는다.
+            if (!EmailNormalizer.normalize(sameEmail.get().getEmail()).equals(email)) {
+                throw new BusinessException(AuthErrorCode.OAUTH_LINK_UNAVAILABLE);
+            }
             return linkAndLogin(sameEmail.get(), providerUserId);
         }
         // 탈퇴한 계정이 이메일 UNIQUE를 계속 쥐고 있으면 새 계정을 만들 수 없다(User.deletedAt 주석).
