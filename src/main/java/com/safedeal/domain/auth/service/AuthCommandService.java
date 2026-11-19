@@ -172,7 +172,8 @@ public class AuthCommandService {
         }
     }
 
-    private AuthTokens issueTokens(User user) {
+    /** 토큰 발급 + 화이트리스트 저장. 카카오 로그인(OauthCommandService)도 같은 경로로 발급한다. */
+    public AuthTokens issueTokens(User user) {
         IssuedToken access = tokenProvider.issueAccess(user.getId(), user.getRole().name());
         IssuedToken refresh = tokenProvider.issueRefresh(user.getId());
         // 저장 실패는 그대로 올린다(fail-closed) — 화이트리스트에 없는 refresh를 내주면 다음 재발급 때 재사용 공격으로 오판된다.

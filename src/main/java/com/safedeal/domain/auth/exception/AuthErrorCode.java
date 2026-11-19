@@ -33,7 +33,24 @@ public enum AuthErrorCode implements ErrorCode {
     // 메일을 보내는 요청(재설정 링크·인증 메일 재발송)의 호출 제한 — 로그인 잠금(AUTH006)과 원인이 달라 코드도 나눈다.
     TOO_MANY_MAIL_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "AUTH010",
             "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."),
-    // AUTH011 이후는 OAuth(AUTH-5)에서 이어서 쓴다.
+    // ── 카카오 로그인 (AUTH-5) ──
+    // state 불일치·재사용·만료·누락을 구분하지 않는다 — 구분해주면 위조 시도에 힌트를 준다.
+    OAUTH_INVALID_STATE(HttpStatus.BAD_REQUEST, "AUTH011",
+            "로그인 요청이 유효하지 않거나 만료되었습니다. 다시 시도해 주세요."),
+    OAUTH_PROVIDER_FAILED(HttpStatus.BAD_GATEWAY, "AUTH012",
+            "카카오 로그인 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요."),
+    // 동의 화면에서 취소한 경우. 오류(AUTH012)와 나누는 이유는 프런트가 "취소하셨어요"를 따로 보여줘야 해서다.
+    OAUTH_CANCELLED(HttpStatus.BAD_REQUEST, "AUTH013", "카카오 로그인이 취소되었습니다."),
+    // 카카오 이메일이 없음·무효·미검증 — 가입을 받지 않는다(2026-11-19 결정, users.email NOT NULL 유지).
+    OAUTH_EMAIL_REQUIRED(HttpStatus.BAD_REQUEST, "AUTH014",
+            "카카오 계정의 이메일 인증이 필요합니다. 카카오에서 이메일을 인증한 뒤 다시 시도해 주세요."),
+    // 같은 이메일의 계정이 있지만 자동 연결할 수 없는 경우(그 계정이 이메일 미인증 / 이미 다른 카카오와 연결 /
+    // 탈퇴한 계정이 이메일을 점유). 미인증 계정에 붙이면 남의 이메일로 먼저 가입한 사람이 계정을 가로챈다.
+    OAUTH_LINK_UNAVAILABLE(HttpStatus.CONFLICT, "AUTH015",
+            "이 이메일로 가입된 계정과 카카오 계정을 연결할 수 없습니다. 기존 계정으로 로그인해 주세요."),
+    // 가입 티켓 없음·만료·사용됨을 구분하지 않는다(AUTH008과 같은 이유).
+    INVALID_OAUTH_SIGNUP_TICKET(HttpStatus.BAD_REQUEST, "AUTH016",
+            "가입 요청이 만료되었습니다. 카카오 로그인을 다시 진행해 주세요."),
     ;
 
     private final HttpStatus status;

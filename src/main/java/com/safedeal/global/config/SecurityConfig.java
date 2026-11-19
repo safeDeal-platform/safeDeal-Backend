@@ -54,6 +54,15 @@ public class SecurityConfig {
             "/api/auth/email/verify",
             "/api/auth/password/reset-request",
             "/api/auth/password/reset",
+            // 카카오로 처음 온 사용자의 가입 마무리 — 아직 계정이 없다. 가입 티켓 쿠키가 본인 확인 역할을 한다.
+            "/api/auth/oauth/kakao/signup",
+    };
+
+    // 카카오 로그인 시작·콜백(AUTH-5). 브라우저 화면 이동이라 GET이고 토큰이 있을 수 없다.
+    // "/api/auth/oauth/**"로 넓히지 않는다 — 나중에 생길 연결 해제 같은 로그인 필요 API까지 공개된다.
+    private static final String[] AUTH_PUBLIC_GET_ENDPOINTS = {
+            "/api/auth/oauth/kakao",
+            "/api/auth/oauth/kakao/callback",
     };
 
     // 매물 목록·상세 공개 조회만 연다(쓰기 메서드는 포함 안 함). 하위 경로를 "/**"로 열지
@@ -111,6 +120,7 @@ public class SecurityConfig {
                     auth.dispatcherTypeMatchers(DispatcherType.ERROR, DispatcherType.FORWARD).permitAll();
 
                     auth.requestMatchers(HttpMethod.POST, AUTH_PUBLIC_POST_ENDPOINTS).permitAll();
+                    auth.requestMatchers(HttpMethod.GET, AUTH_PUBLIC_GET_ENDPOINTS).permitAll();
                     auth.requestMatchers(HttpMethod.GET, LISTINGS_PUBLIC_GET_ENDPOINTS).permitAll();
                     auth.requestMatchers(HttpMethod.GET, ACTUATOR_PUBLIC_GET_ENDPOINTS).permitAll();
                     auth.requestMatchers(HttpMethod.GET, PRICE_STATISTICS_PUBLIC_GET_ENDPOINTS).permitAll();
