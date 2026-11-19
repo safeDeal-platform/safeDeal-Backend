@@ -310,11 +310,17 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
         MvcResult callback = loginWith("first");
         assertRedirect(callback, "result", "signup");
         assertThat(callback.getResponse().getCookie("refreshToken")).isNull();
+        assertThat(((MockCookie) callback.getResponse().getCookie("oauthState")).getMaxAge()).isZero();
         String ticket = signupTicketOf(callback);
 
         String nickname = nickname();
         MvcResult signedUp = signup(ticket, nickname);
         assertThat(signedUp.getResponse().getStatus()).isEqualTo(201);
+        // 응답 바디는 로컬 회원가입과 같은 모양이다.
+        String body = signedUp.getResponse().getContentAsString();
+        assertThat(com.jayway.jsonpath.JsonPath.<String>read(body, "$.data.accessToken")).isNotBlank();
+        assertThat(com.jayway.jsonpath.JsonPath.<String>read(body, "$.data.nickname")).isEqualTo(nickname);
+        assertThat(com.jayway.jsonpath.JsonPath.<Boolean>read(body, "$.data.emailVerified")).isTrue();
         assertThat(signedUp.getResponse().getCookie("refreshToken").getValue()).isNotBlank();
         assertThat(((MockCookie) signedUp.getResponse().getCookie("oauthSignup")).getMaxAge()).isZero();
         mockMvc.perform(post(SIGNUP).contentType(MediaType.APPLICATION_JSON)
@@ -335,6 +341,7 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
         kakao.register("second", FakeKakaoOauthClient.verified(kakaoId, "changed-" + email));
         MvcResult again = loginWith("second");
         assertRedirect(again, "result", "login");
+        assertThat(((MockCookie) again.getResponse().getCookie("oauthState")).getMaxAge()).isZero();
         MockCookie refresh = (MockCookie) again.getResponse().getCookie("refreshToken");
         assertThat(refresh.getPath()).isEqualTo("/api/auth");
 
@@ -400,6 +407,16 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
     void missingOrForgedTicket() throws Exception {
         assertThat(signup(null, nickname()).getResponse().getContentAsString()).contains("AUTH016");
         assertThat(signup("made-up", nickname()).getResponse().getContentAsString()).contains("AUTH016");
+    }
+
+    @Test
+    @DisplayName("닉네임이 비었거나 1자·21자면 400(C001) — 티켓 검사보다 입력 검증이 먼저다")
+    void invalidNicknameIsRejected() throws Exception {
+        for (String nickname : List.of("", "가", "가".repeat(21))) {
+            MvcResult result = signup("any-ticket", nickname);
+            assertThat(result.getResponse().getStatus()).isEqualTo(400);
+            assertThat(result.getResponse().getContentAsString()).contains("C001");
+        }
     }
 
     @Test
