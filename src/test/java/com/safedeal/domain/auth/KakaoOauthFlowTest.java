@@ -9,6 +9,7 @@ import com.safedeal.domain.user.entity.User;
 import com.safedeal.domain.user.repository.UserRepository;
 import com.safedeal.global.exception.BusinessException;
 import com.safedeal.global.exception.CommonErrorCode;
+import com.safedeal.global.security.JwtTokenProvider;
 import com.safedeal.testsupport.FakeKakaoOauthClient;
 import com.safedeal.testsupport.IntegrationTestSupport;
 import jakarta.servlet.http.Cookie;
@@ -30,6 +31,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -239,6 +241,20 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("state는 Redis에 10분만 남고, 만료된 state는 AUTH011이며 카카오를 부르지 않는다")
+    void expiredStateIsRejected() throws Exception {
+        kakao.register("code-1", FakeKakaoOauthClient.verified(newKakaoId(), newEmail()));
+        String state = start();
+        String key = "auth:oauth-state:v1:" + JwtTokenProvider.hash(state);
+
+        assertThat(redisTemplate.getExpire(key, TimeUnit.SECONDS)).isBetween(1L, OauthCommandService.COOKIE_TTL.toSeconds());
+        expireNow(key);
+
+        assertRedirect(callback("code-1", state, state), "error", "AUTH011");
+        assertThat(kakao.fetchCount()).isZero();
+    }
+
+    @Test
     @DisplayName("콜백은 결과와 상관없이 state 쿠키를 지운다")
     void callbackClearsStateCookie() throws Exception {
         MvcResult result = callback("code-x", "made-up", "made-up");
@@ -410,6 +426,27 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
     }
 
     @Test
+    @DisplayName("가입 티켓은 Redis에 10분만 남고, 만료된 티켓은 AUTH016이며 계정을 만들지 않는다")
+    void expiredTicketIsRejected() throws Exception {
+        String email = newEmail();
+        kakao.register("c", FakeKakaoOauthClient.verified(newKakaoId(), email));
+        String ticket = signupTicketOf(loginWith("c"));
+        String key = "auth:oauth-signup:v1:" + JwtTokenProvider.hash(ticket);
+
+        assertThat(redisTemplate.getExpire(key, TimeUnit.SECONDS)).isBetween(1L, OauthCommandService.COOKIE_TTL.toSeconds());
+        expireNow(key);
+
+        assertThat(signup(ticket, nickname()).getResponse().getContentAsString()).contains("AUTH016");
+        assertThat(userRepository.existsByEmail(email)).isFalse();
+    }
+
+    /** 고정 대기 대신 Redis가 키를 바로 만료시키게 한다(EXPIRE 0 = 즉시 만료). */
+    private void expireNow(String key) {
+        redisTemplate.expire(key, Duration.ZERO);
+        assertThat(redisTemplate.hasKey(key)).isFalse();
+    }
+
+    @Test
     @DisplayName("닉네임이 비었거나 1자·21자면 400(C001) — 티켓 검사보다 입력 검증이 먼저다")
     void invalidNicknameIsRejected() throws Exception {
         for (String nickname : List.of("", "가", "가".repeat(21))) {
@@ -565,6 +602,20 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE email = ?", Integer.class, email)).isOne();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM oauth_accounts WHERE provider_user_id = ?",
                 Integer.class, String.valueOf(kakaoId))).isOne();
+    }
+
+    @Test
+    @DisplayName("같은 state로 동시에 두 콜백이 와도 하나만 통과하고 나머지는 AUTH011, 카카오 호출은 1번")
+    void concurrentCallbacksWithSameStateConsumeOnce() throws Exception {
+        kakao.register("code-1", FakeKakaoOauthClient.verified(newKakaoId(), newEmail()));
+        String state = start();
+
+        List<Throwable> failures = runConcurrently(2,
+                i -> () -> oauthCommandService.callback("code-1", state, state, null));
+
+        assertThat(failures).hasSize(1).allMatch(t -> t instanceof BusinessException e
+                && e.getErrorCode() == AuthErrorCode.OAUTH_INVALID_STATE);
+        assertThat(kakao.fetchCount()).isOne();
     }
 
     @Test
