@@ -64,6 +64,8 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
     private static final String CALLBACK = "/api/auth/oauth/kakao/callback";
     private static final String SIGNUP = "/api/auth/oauth/kakao/signup";
     private static final AtomicLong SEQ = new AtomicLong(System.nanoTime());
+    /** 운영 상수와 따로 적는다 — 상수가 바뀌면 이 테스트가 잡아야 한다. */
+    private static final long TEN_MINUTES = Duration.ofMinutes(10).toSeconds();
 
     @Autowired MockMvc mockMvc;
     @Autowired FakeKakaoOauthClient kakao;
@@ -247,7 +249,7 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
         String state = start();
         String key = "auth:oauth-state:v1:" + JwtTokenProvider.hash(state);
 
-        assertThat(redisTemplate.getExpire(key, TimeUnit.SECONDS)).isBetween(1L, OauthCommandService.COOKIE_TTL.toSeconds());
+        assertThat(redisTemplate.getExpire(key, TimeUnit.SECONDS)).isBetween(TEN_MINUTES - 30, TEN_MINUTES);
         expireNow(key);
 
         assertRedirect(callback("code-1", state, state), "error", "AUTH011");
@@ -433,7 +435,7 @@ class KakaoOauthFlowTest extends IntegrationTestSupport {
         String ticket = signupTicketOf(loginWith("c"));
         String key = "auth:oauth-signup:v1:" + JwtTokenProvider.hash(ticket);
 
-        assertThat(redisTemplate.getExpire(key, TimeUnit.SECONDS)).isBetween(1L, OauthCommandService.COOKIE_TTL.toSeconds());
+        assertThat(redisTemplate.getExpire(key, TimeUnit.SECONDS)).isBetween(TEN_MINUTES - 30, TEN_MINUTES);
         expireNow(key);
 
         assertThat(signup(ticket, nickname()).getResponse().getContentAsString()).contains("AUTH016");
