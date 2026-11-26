@@ -155,6 +155,12 @@ claude-code-action은 PR의 `ai-review.yml`이 기본 브랜치(dev)와 한 글�
 | M1 | forbidden_tool일 때 걸린 도구 **이름만** stderr 로그에 `forbidden_tools=<이름,…>`로 남긴다(init의 금지 도구 + 허용 밖 tool_use, 처음 나온 순서, 중복 없음). 이름이 `^[A-Za-z0-9_.-]{1,100}$`가 아니면 `<invalid>`. 판정 출력 줄과 GITHUB_OUTPUT은 그대로. 원인을 본 뒤 고친다 |
 | M2 | 요약 검토 범위의 경로에 든 제어 문자는 지우지 않고 escape(`\n`, `\r`, `\t`, 그 밖 `\xNN`)로 보여 준다(CodeRabbit #42) |
 
+## 검토 증거 부족 원인 로그 (경화 요청, 2026-11-26)
+
+| # | 결정 |
+|---|---|
+| M5 | incomplete_review일 때 stderr 로그에 `evidence_gaps=<JSON>`(필요한 파일 수, REVIEWED 형식 오류 여부, 빠진·없는 REVIEWED 경로, Read하지 않은 파일)을 남긴다. 배경: #57에서 두 번 연속 incomplete_review였으나 어느 조건인지 알 수 없었다. 판정·출력 줄·GITHUB_OUTPUT은 그대로 |
+
 ## ToolSearch 허용 (재민 승인, 2026-11-15 — "Allow it")
 
 | # | 결정 |
