@@ -27,6 +27,10 @@ class RequiredPropertyGuardTest {
         env.setProperty("app.kafka.consumer-group.chat-fanout", "safedeal-chat-fanout-task1");
         env.setProperty("app.jwt.secret", "test-secret-key-at-least-32-bytes-long!!");
         env.setProperty("app.mail.provider", "resend");
+        env.setProperty("app.oauth.kakao.client-id", "kakao-rest-api-key");
+        env.setProperty("app.oauth.kakao.client-secret", "kakao-client-secret");
+        env.setProperty("app.oauth.kakao.redirect-uri", "https://api.safedeal.example.com/api/auth/oauth/kakao/callback");
+        env.setProperty("app.oauth.kakao.frontend-callback-url", "https://safedeal.example.com/oauth/callback");
         return env;
     }
 
@@ -59,6 +63,17 @@ class RequiredPropertyGuardTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("spring.data.redis.host")
                 .hasMessageContaining("app.kafka.consumer-group.chat-fanout");
+    }
+
+    @Test
+    @DisplayName("카카오 키가 비면 키 이름을 보고하며 기동을 막는다")
+    void kakaoSecretMissing_isReported() {
+        MockEnvironment env = fullyConfigured();
+        env.setProperty("app.oauth.kakao.client-secret", "");
+
+        assertThatThrownBy(() -> new RequiredPropertyGuard(env).checkRequiredProperties())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("app.oauth.kakao.client-secret");
     }
 
     @Test

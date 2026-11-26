@@ -95,9 +95,20 @@ public class User extends MutableEntity {
         this.reportedFlag = false;
     }
 
-    /** 이메일+비밀번호 로컬 가입. OAuth 가입은 AUTH-5에서 별도 팩토리로 추가한다. */
+    /** 이메일+비밀번호 로컬 가입. 소셜 가입은 {@link #createOauth}. */
     public static User createLocal(String email, String encodedPassword, String nickname) {
         return new User(email, encodedPassword, nickname);
+    }
+
+    /**
+     * 카카오 가입 (AUTH-5). 비밀번호가 없는 계정이다(정책 'OAuth-only 계정').
+     * 이메일 인증 완료 상태로 만든다 — 카카오가 검증한 이메일만 가입시키므로(KakaoProfile.verifiedEmail)
+     * 우리 인증 메일을 한 번 더 보낼 이유가 없다.
+     */
+    public static User createOauth(String email, String nickname) {
+        User user = new User(email, null, nickname);
+        user.verifyEmail();
+        return user;
     }
 
     public void markLoggedIn(Instant at) {

@@ -42,7 +42,12 @@ public class RequiredPropertyGuard {
             // 두지 않았으므로(의도) 여기서 못 잡으면 첫 로그인 요청에서야 드러난다.
             "app.jwt.secret",
             // 값이 log인 경우는 아래 checkRequiredProperties에서 따로 막는다 — 있기만 해서는 부족하다.
-            MAIL_PROVIDER_KEY
+            MAIL_PROVIDER_KEY,
+            // 카카오 로그인(AUTH-5). 빠뜨리면 기동은 되고 카카오 로그인만 전부 실패해 첫 사용자에서야 드러난다.
+            "app.oauth.kakao.client-id",
+            "app.oauth.kakao.client-secret",
+            "app.oauth.kakao.redirect-uri",
+            "app.oauth.kakao.frontend-callback-url"
     );
 
     private final Environment environment;

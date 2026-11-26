@@ -119,6 +119,16 @@ app:
     api-key: ${RESEND_API_KEY:}
     # 메일 본문 링크가 가리킬 프런트엔드 기준 URL.
     base-url: ${MAIL_BASE_URL:http://localhost:3000}
+  oauth:
+    kakao:
+      # 기본값을 두지 않는다(JWT_SECRET과 같은 이유) — 운영 누락은 RequiredPropertyGuard가 기동에서 막는다.
+      # 로컬 기본값은 application-local.yml에 있다.
+      client-id: ${KAKAO_CLIENT_ID}
+      client-secret: ${KAKAO_CLIENT_SECRET}
+      # 카카오 콘솔에 등록한 주소와 글자 하나까지 같아야 한다.
+      redirect-uri: ${KAKAO_REDIRECT_URI}
+      # 콜백 처리 후 브라우저를 보낼 프런트 주소. 요청값으로 받지 않는다(오픈 리다이렉트 방지).
+      frontend-callback-url: ${KAKAO_FRONTEND_CALLBACK_URL}
   security:
     dev-auth-enabled: false
   kafka:
