@@ -144,6 +144,20 @@ export function checkReviewEvidence({ text, nonce, diffText, executionJson, work
   return needed.every((f) => read.has(f)) ? null : incomplete;
 }
 
+// M5: incomplete_review의 어느 조건이 걸렸는지. 판정에는 쓰지 않고 로그에만 남긴다.
+export function evidenceGaps({ text, nonce, diffText, executionJson, workspace } = {}) {
+  const needed = filesNeedingReview(diffText);
+  const listed = parseReviewed(text, nonce);
+  const read = readFiles(executionJson, workspace);
+  return {
+    needed: needed.length,
+    reviewed_format_error: listed === undefined,
+    missing_reviewed: needed.filter((f) => !listed?.includes(f)),
+    extra_reviewed: (listed ?? []).filter((f) => !needed.includes(f)),
+    not_read: needed.filter((f) => !read.has(f)),
+  };
+}
+
 export function parseCounts(text, nonce) {
   const p1 = countLine(text, 'P1', nonce);
   const p2 = countLine(text, 'P2', nonce);
@@ -270,12 +284,13 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     process.exit(2);
   }
   const env = process.env;
-  const result = conclude({
+  const input = {
     nonce: env.NONCE,
     executionJson: readExecutionFile(env.EXECUTION_FILE),
     diffText: readExecutionFile(env.DIFF_FILE),
     workspace: env.GITHUB_WORKSPACE || process.cwd(),
-  });
+  };
+  const result = conclude(input);
   const lines = `verdict=${result.verdict}\nreason=${result.reason}\nfindings=${result.findings ?? ''}\nquestions=${result.questions ?? ''}\n`;
   process.stdout.write(lines);
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, lines);
@@ -283,6 +298,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     // M1: 실행 기록은 로그에 안 나오므로 걸린 도구 이름만 남긴다.
     const names = forbiddenToolNames(readExecutionFile(env.EXECUTION_FILE), ALLOWED_TOOLS);
     process.stderr.write(`::warning::forbidden_tools=${names.join(',') || '(실행 기록을 읽을 수 없음)'}\n`);
+  }
+  if (result.reason === 'incomplete_review') {
+    // M5: 경로만 남긴다(결과 글 본문은 남기지 않는다). JSON이라 줄바꿈이 escape되어 워크플로 명령을 끼워 넣을 수 없다.
+    const gaps = evidenceGaps({ ...input, text: extractResultText(input.executionJson) });
+    process.stderr.write(`::warning::evidence_gaps=${JSON.stringify(gaps)}\n`);
   }
   process.exit(result.verdict === 'PASS' ? 0 : 1);
 }
