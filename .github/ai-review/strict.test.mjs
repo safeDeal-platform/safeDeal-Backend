@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseYaml } from './test-support/mini-yaml.mjs';
 import {
-  checkReviewEvidence, filesNeedingReview, finalVerdict, parseQuestionCount, parseReviewed, readFiles,
+  checkReviewEvidence, filesNeedingReview, finalVerdict, parseQuestionCount, parseReviewed, readFiles, evidenceGaps,
 } from './verdict.mjs';
 import { buildSummary } from './summary.mjs';
 
@@ -233,7 +233,7 @@ function conclude(lines, { messages, env = {} } = {}) {
     env: { PATH: process.env.PATH, NONCE: N, EXECUTION_FILE: file, DIFF_FILE: DIFF_PATH, GITHUB_WORKSPACE: WS, ...env },
     encoding: 'utf8',
   });
-  return { status: r.status, out: r.stdout };
+  return { status: r.status, out: r.stdout, err: r.stderr };
 }
 const full = (p1, p2, p3, verdict) => [...reviewed('src/A.java'), ...counts(p1, p2, p3), `VERDICT[${N}]: ${verdict}`];
 
@@ -291,6 +291,34 @@ test('STR-14 CLI: BLOCK 표식이어도 증거가 없으면 판정 불가(대충
   const r = conclude([...counts(1, 0, 0), `VERDICT[${N}]: BLOCK`]);
   assert.match(r.out, /^verdict=UNKNOWN$/m);
   assert.match(r.out, /^reason=incomplete_review$/m);
+});
+
+// ── M5 incomplete_review 원인 로그 ──
+
+test('M5 빠진 REVIEWED·없는 경로·안 읽은 파일을 각각 알려 준다', () => {
+  const gaps = evidenceGaps({
+    text: reviewed('src/A.java', 'src/Ghost.java').join('\n'), nonce: N, diffText: DIFF,
+    executionJson: JSON.stringify([read(`${WS}/src/ATest.java`), result('끝')].flat()), workspace: WS,
+  });
+  assert.deepEqual(gaps, {
+    needed: 2, reviewed_format_error: false,
+    missing_reviewed: ['src/ATest.java'], extra_reviewed: ['src/Ghost.java'], not_read: ['src/A.java'],
+  });
+});
+
+test('M5 REVIEWED 줄이 중복이면 형식 오류로 알린다', () => {
+  const gaps = evidenceGaps({ text: reviewed('src/A.java', 'src/A.java').join('\n'), nonce: N, diffText: DIFF });
+  assert.equal(gaps.reviewed_format_error, true);
+});
+
+test('M5 CLI: incomplete_review면 stderr에 evidence_gaps를 남기고, 판정 출력은 그대로', () => {
+  const r = conclude([...counts(0, 0, 0), `VERDICT[${N}]: PASS`]);
+  assert.match(r.err, /^::warning::evidence_gaps=\{.*"missing_reviewed":\["src\/A\.java"\]/m);
+  assert.doesNotMatch(r.out, /evidence_gaps/);
+});
+
+test('M5 CLI: PASS면 evidence_gaps를 남기지 않는다', () => {
+  assert.doesNotMatch(conclude(full(0, 0, 0, 'PASS')).err, /evidence_gaps/);
 });
 
 // ── STR-10 요약: 질문 수 ──
