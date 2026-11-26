@@ -521,6 +521,62 @@ class AuthAccountRecoveryTest {
     }
 
     @Test
+    @DisplayName("회원가입은 IP당 시간당 20회까지고, 넘으면 AUTH010이며 계정도 메일도 만들지 않는다")
+    void signupIsRateLimitedPerIp() throws Exception {
+        String floodingIp = "203.0.113.10";
+        String registered = unique("signup-flood") + "@test.com";
+        signupFrom(floodingIp, registered, unique("가입폭주")).andExpect(status().isCreated());
+        for (int attempt = 2; attempt <= 20; attempt++) {
+            signupFrom(floodingIp, unique("signup-flood") + "@test.com", unique("가입폭주"))
+                    .andExpect(status().isCreated());
+        }
+
+        // 이미 가입된 주소도 409가 아니라 429여야 한다 — 중복 검사가 제한보다 앞이면 한도를 넘긴 뒤에도
+        // 409/201 차이로 가입 여부를 무제한 조회할 수 있다.
+        signupFrom(floodingIp, registered, unique("중복시도"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("AUTH010"));
+
+        // X-Forwarded-For는 믿지 않는다 — 믿으면 헤더 값만 바꿔 한도를 우회한다(AuthController.clientIp).
+        mockMvc.perform(post("/api/auth/signup")
+                        .with(request -> {
+                            request.setRemoteAddr(floodingIp);
+                            return request;
+                        })
+                        .header("X-Forwarded-For", "198.51.100.7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"email":"%s","password":"password123","nickname":"%s"}
+                                """.formatted(unique("signup-xff") + "@test.com", unique("헤더우회"))))
+                .andExpect(status().isTooManyRequests());
+
+        String blocked = unique("signup-blocked") + "@test.com";
+        signupFrom(floodingIp, blocked, unique("가입차단"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("AUTH010"));
+
+        // 429로 끝난 가입은 계정도 인증 메일도 남기지 않는다(트랜잭션 롤백 · 메일은 커밋 후 발송이 전제).
+        assertThat(userRepository.existsByEmail(blocked)).isFalse();
+        assertThat(mailSender.sentTo(blocked)).isEmpty();
+
+        // 제한은 IP별이다 — 한 IP가 막혔다고 다른 사용자의 가입까지 막히면 안 된다.
+        signupFrom("203.0.113.20", unique("signup-other-ip") + "@test.com", unique("다른IP"))
+                .andExpect(status().isCreated());
+    }
+
+    private ResultActions signupFrom(String ip, String email, String nickname) throws Exception {
+        return mockMvc.perform(post("/api/auth/signup")
+                .with(request -> {
+                    request.setRemoteAddr(ip);
+                    return request;
+                })
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"email":"%s","password":"password123","nickname":"%s"}
+                        """.formatted(email, nickname)));
+    }
+
+    @Test
     @DisplayName("없는 재설정 토큰은 AUTH009로 거부된다")
     void unknownResetTokenIsRejected() throws Exception {
         reset("this-token-never-existed", "new-password-1234")

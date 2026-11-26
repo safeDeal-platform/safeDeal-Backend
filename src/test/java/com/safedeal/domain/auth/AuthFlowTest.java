@@ -2,11 +2,13 @@ package com.safedeal.domain.auth;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockCookie;
@@ -21,6 +23,7 @@ import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Locale;
+import java.util.Set;
 
 import static org.hamcrest.Matchers.greaterThan;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -69,11 +72,26 @@ class AuthFlowTest {
     @Autowired
     ObjectMapper objectMapper;
 
+    @Autowired
+    StringRedisTemplate redisTemplate;
+
     private static int sequence = 0;
 
     /** 테스트끼리 이메일·닉네임 UNIQUE가 충돌하지 않도록 매번 다른 값을 쓴다. */
     private static String unique(String prefix) {
         return prefix + (++sequence);
+    }
+
+    /**
+     * 가입 발송 제한 카운터를 테스트마다 비운다. 가입 제한은 IP당 시간당 20회이고 MockMvc 요청은 전부
+     * 같은 IP라, 비우지 않으면 이 클래스의 가입 호출이 20회를 넘는 순간 뒤쪽 테스트만 429로 깨진다.
+     */
+    @BeforeEach
+    void resetRateLimits() {
+        Set<String> keys = redisTemplate.keys("auth:mail-rate:v1:*");
+        if (keys != null && !keys.isEmpty()) {
+            redisTemplate.delete(keys);
+        }
     }
 
 
